@@ -5,11 +5,10 @@ import numpy as np
 import itertools
 import time
 import random
-import pymetis
 import heapq
 from WKNNgraph import *
 
-def cutTree2(linkageMatrix, t, outlierRatio=None):
+def cutTree(linkageMatrix, t, outlierRatio=None):
 	dic_parent2childs={}
 	dic_child2parent={}
 	dic_node2weight={}
@@ -112,14 +111,11 @@ def cutTree2(linkageMatrix, t, outlierRatio=None):
 	return lst_cluster
 
 def computeSeparationGain(dic_key2value):
-	#c11,c22,c12 = dic_key2value['countWeight1'],dic_key2value['countWeight2'],dic_key2value['countWeight12']
 	w11,w22,w12 = dic_key2value['sumWeight1'],dic_key2value['sumWeight2'],dic_key2value['sumWeight12']
 	n1, n2, = dic_key2value['nNode1'],dic_key2value['nNode2']
 	if w12 == 0:
 		return 1.0 - 0.1**20 * float(n1+n2)/(2*n1*n2) * 1.0/(-n1/float(n1+n2)*np.log2(n1/float(n1+n2))-n2/float(n1+n2)*np.log2(n2/float(n1+n2)))
 	a= w12/(n1*n2)
-	#b2= w12/c12/((w11+w22+n1+n2)/(c11+c22+n1+n2))
-	#c2= w12/(n1*n2)/((w11+w22+n1+n2)/(n1*(n1+1)*0.5+n2*(n2+1)*0.5))
 	return 1.0 - a
 
 def K(c1,c2):
@@ -128,108 +124,10 @@ def K(c1,c2):
 	else:
 		return (c2,c1)
 
-def cutTree(linkageMatrix, maxLeafID, t):
-	dic_parent2childs={}
-	dic_child2parent={}
-	dic_node2weight={}
-	dic_node2nNode={}
-	set_leaf=set()
-	for c, x in enumerate(linkageMatrix,maxLeafID+1):
-		c1, c2, w, nNode = int(x[0]), int(x[1]), x[2], x[3]
-		if c1 not in dic_parent2childs:
-			set_leaf.add(c1)
-		if c2 not in dic_parent2childs:
-			set_leaf.add(c2)
-		dic_child2parent[c1]=c
-		dic_child2parent[c2]=c
-		dic_parent2childs[c]={c1,c2}
-		dic_node2weight[c]=(nNode,c)
-		dic_node2nNode[c]=nNode
-		root=c
-	set_root={root}
-	dic_root2name={root:'0'}
-	while len(set_root) < t:
-		target = sorted(set_root, key=lambda x:dic_node2weight.get(x,(1.0,0.0)),reverse=True)[0]
-		set_root.remove(target)
-		c1, c2 = dic_parent2childs[target]
-		if dic_node2nNode.get(c1,1.0) < dic_node2nNode.get(c2,1.0):
-			c1, c2 = c2, c1
-		dic_root2name[c1] = dic_root2name[target]+'0'
-		dic_root2name[c2] = dic_root2name[target]+'1'
-		set_root.add(c1)
-		set_root.add(c2)
-	dic_leaf2cluster={}
-	for cluster, root in enumerate(sorted(set_root, key=lambda x:dic_root2name[x])):
-		set_child = {root}
-		while True:
-			if len(set_child) == 0:
-				break
-			target = set_child.pop()
-			if target in set_leaf:
-				dic_leaf2cluster[target] = cluster
-				continue
-			c1, c2 = dic_parent2childs[target]
-			if c1 in set_leaf:
-				dic_leaf2cluster[c1] = cluster
-			else:
-				set_child.add(c1)
-			if c2 in set_leaf:
-				dic_leaf2cluster[c2] = cluster
-			else:
-				set_child.add(c2)
-	return dic_leaf2cluster
-
 def delete(dic, key):
 	if key in dic:
 		del dic[key]
 
-global_starttime=time.time()
-
-def kMedoids(D, k, tmax=100, seed=None):
-	if seed != None:
-		#print seed
-		np.random.seed(seed)
-	# determine dimensions of distance matrix D
-	m, n = D.shape
-
-	if k >= n:
-		M, C = [i for i in range(len(lst_gene))], dict([(i,i) for i in range(len(lst_gene))])
-		return M, C
-	# randomly initialize an array of k medoid indices
-	M = np.arange(n)
-	np.random.shuffle(M)
-	M = np.sort(M[:k])
-
-	# create a copy of the array of medoid indices
-	Mnew = np.copy(M)
-
-	# initialize a dictionary to represent clusters
-	C = {}
-	for t in xrange(tmax):
-		# determine clusters, i. e. arrays of data indices
-		J = np.argmin(D[:,M], axis=1)
-		for kappa, mm in enumerate(M):
-			J[mm]=kappa
-		for kappa in range(k):
-			C[kappa] = np.where(J==kappa)[0]
-		# update cluster medoids
-		for kappa in range(k):
-			J = np.mean(D[np.ix_(C[kappa],C[kappa])],axis=1)
-			j = np.argmin(J)
-			Mnew[kappa] = C[kappa][j]
-		np.sort(Mnew)
-		# check for convergence
-		if np.array_equal(M, Mnew):
-			break
-		M = np.copy(Mnew)
-	else:
-		# final update of cluster memberships
-		J = np.argmin(D[:,M], axis=1)
-		for kappa in range(k):
-			C[kappa] = np.where(J==kappa)[0]
-
-	# return results
-	return M, C
 
 def connectedComponent(wKNNgraph,set_node=None):
 	if set_node == None:
@@ -258,6 +156,7 @@ def connectedComponent(wKNNgraph,set_node=None):
 	return lst_connectedComponent
 
 def partitionByMetis(lst_node, nPartition, wKNNgraph, isExact=False, recursive=True):
+	import pymetis
 	adjncy=[]
 	xadj=[]
 	adjwgt=[]
@@ -318,11 +217,7 @@ class hierarchicalClusteringAgent:
 		self.dic_cluster2sumWeight = dict(dic_node2sumWeight)
 
 		self.nNode = sum([self.dic_cluster2nNode.get(cluster,1.0) for cluster in self.set_cluster])
-		#self.costFunction = lambda weightSum, nNode: weightSum*nNode
 		self.costFunction = lambda weightSum, nNode: weightSum*nNode*nNode
-		#self.costFunction = lambda weightSum, nNode: weightSum*np.sqrt(nNode)
-		#self.costFunction = lambda weightSum, nNode: weightSum*np.log(nNode+1)
-		#self.costFunction = lambda weightSum, nNode: np.log(weightSum+1)*nNode
 		self.nTotalNode = nTotalNode
 		self.dic_cluster2cost = {}
 		for cluster in self.set_cluster:
@@ -997,7 +892,7 @@ class ChunkTree:
 		if chunkingMethod == 'average':
 			import BaselineHC_fast
 			linkageMatrix = BaselineHC_fast.fit(self.wKNNgraph.dic_node2node_weight, linkageMethod=chunkingMethod)
-			dic_node2cluster = cutTree(linkageMatrix, maxLeafID=max(self.set_node), t=nChunk)
+			dic_node2cluster = cutTree(linkageMatrix, t=nChunk)
 			self.dic_chunk2nodes={}
 			self.dic_node2chunk={}
 			dic_cluster2chunk={}
@@ -1014,7 +909,7 @@ class ChunkTree:
 		if chunkingMethod == 'minModularityWeightNormalized':
 			import BaselineHC_fast
 			linkageMatrix = BaselineHC_fast.fit(self.wKNNgraph.dic_node2node_weight, linkageMethod=chunkingMethod)
-			dic_node2cluster = cutTree(linkageMatrix, maxLeafID=max(self.set_node), t=nChunk)
+			dic_node2cluster = cutTree(linkageMatrix, t=nChunk)
 			self.dic_chunk2nodes={}
 			self.dic_node2chunk={}
 			dic_cluster2chunk={}
@@ -1609,21 +1504,21 @@ class IDEA:
 		self.lst_name=None
 		pass
 
-	def fit(self, X, k, K=10, nChunk='auto', outlierRatio=0.09, chunkingMethod='metis', Xtype='graph'):
-		#chunkingMethod='average'
-		#chunkingMethod='minModularityWeightNormalized'
-		nIteration=2+int(np.sqrt(k))
-		wKNNgraph = X
-		assert(Xtype in ['graph', 'similarity', 'dissimilarity']),(
+	def fit(self, X, k, Xtype='graph', nNeighbor=10, nChunk='auto', nIteration='auto', outlierRatio=0.09, GraphConversionMethod='WKNN', chunkingMethod='metis', costFunction=lambda weightSum, nNode: weightSum*nNode*nNode):
+		if nIteration == 'auto':
+			nIteration=2+int(np.sqrt(k))
+		assert(Xtype in ['datapoints', 'similarity', 'dissimilarity']),(
 			"Xtype must be one of the 'graph', 'similarity', 'dissimilarity'")
-		'''
 		wKNNgraph = WKNNgraph()
+		if Xtype == 'datapoints':
+			wKNNgraph.constructGraphByData(filename=X, metric='euclidean', nNeighbor=nNeighbor)
+		elif Xtype == 'similarity':
+			wKNNgraph.constructGraph(filename=X, weightType='similarity', nNeighbor=nNeighbor)
+		elif Xtype == 'dissimilarity':
+			wKNNgraph.constructGraph(filename=X, weightType='dissimilarity', nNeighbor=nNeighbor)
+		'''
 		if Xtype == 'graph':
 			wKNNgraph.loadGraph(filename=X)
-		elif Xtype == 'similarity':
-			wKNNgraph.constructGraph(filename=X, weightType='similarity', nNeighbor=K)
-		elif Xtype == 'dissimilarity':
-			wKNNgraph.constructGraph(filename=X, weightType='dissimilarity', nNeighbor=K)
 		'''
 		self.lst_name=[name for node, name in sorted(wKNNgraph.dic_node2name.items())]
 		assert(len(self.lst_name)>1),(
@@ -1637,20 +1532,12 @@ class IDEA:
 		nConnectedComponent = len(connectedComponent(wKNNgraph))
 		if nConnectedComponent > 1:
 			print('warning: # of connected components is %d (>1)'%(nConnectedComponent)) 
-		'''
-		subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod)
-		tmplinkageMatrix=subtree.fullLinkageMatrix(internalNodePrefix='') ###
-		self.linkageMatrix = arrangeLinkageMatrix(tmplinkageMatrix)###
-		self.membership = cutTree2(self.linkageMatrix,k,outlierRatio=0.09)###
-		return###
-		'''
 		iteration=0
 		lst_subtree.append(subtree)
 		while True:
 			if iteration >= nIteration or len(lst_subtree)==nNode:
 				break
 			subtree=lst_subtree.pop(0)
-			#iteration += int(subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod, skipEnsembleRatio=1.0-outlierRatio))
 			iteration += int(subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod))
 			subtree.halfSplit()
 			subtree1, subtree2= subtree.subtree1, subtree.subtree2
@@ -1663,7 +1550,6 @@ class IDEA:
 			else:
 				subtree2.score = subtree2.bestLinkageMatrix[-1][3]['separationGain']
 			linkageMatrix.append([subtree1.ID,subtree2.ID,subtree.ID,subtree.bestLinkageMatrix[-1][3]])
-			print subtree1.ID,subtree2.ID,subtree.ID, len(subtree.set_node), len(subtree1.set_node), len(subtree2.set_node)
 			del subtree
 			if len(subtree1.set_node) == 1: #leaf node
 				linkageMatrix[-1][0] = list(subtree1.set_node)[0]
@@ -1680,34 +1566,53 @@ class IDEA:
 				tmplinkageMatrix[-1][2]=subtree.ID
 				linkageMatrix+=tmplinkageMatrix
 		self.linkageMatrix = arrangeLinkageMatrix(linkageMatrix)
-		self.membership = cutTree2(self.linkageMatrix,k,outlierRatio=outlierRatio)###
+		self.membership = cutTree(self.linkageMatrix,k,outlierRatio=outlierRatio)###
+		self.wKNNgraph = wKNNgraph
 		return
 		
 if __name__ == "__main__":
 	parser=argparse.ArgumentParser(
 		usage='''\
-	%(prog)s [options] weightfile k
-	example: %(prog)s weightfile k -o out.txt
+	%(prog)s [options] datafile k -o cluster_result
+	example: %(prog)s datapoints.txt 7 -o cluster_result.txt
 	''')
 	
-	parser.add_argument('weightfile', help='distance or weight file')
+	parser.add_argument('datafile', help='datapoints, similarity, or dissimilarity file')
 	parser.add_argument('k', type=int, help='the number of cluster')
-	parser.add_argument('-weightType', required=False, default='graph', choices=['graph', 'similarity', 'dissimilarity'], help='weightType')
-	parser.add_argument('-K', required=False, type=int, default=10, help='K-nearest neighbor graph')
-	parser.add_argument('-M', required=False, default='auto', help='the number of chunks')
-	parser.add_argument('-alpha', type=float, required=False, default=0.9, help='the number of initcluster')
+	parser.add_argument('-dataType', required=False, default='datapoints', choices=['datapoints', 'similarity', 'dissimilarity'], help='dataType')
+	parser.add_argument('-o', required=False, default='stdout', help='outfile of cluster result')
+	parser.add_argument('-o2', required=False, default=None, help='outfile of linkage matrix (default = None)')
+	parser.add_argument('-o3', required=False, default=None, help='outfile of WKNN graph (default = None)')
+	parser.add_argument('-nNeighbor', required=False, type=int, default=10, help='Alpha-nearest neighbor graph (default = 10)')
+	parser.add_argument('-nChunk', required=False, default='auto', help='the number of chunks (default = auto = 80+int(log_2 N))')
+	parser.add_argument('-nIteration', required=False, default='auto', help='the iteration of recursive optimization (default = auto = 2+int(sqrt(k))')
+	parser.add_argument('-outlierRatio', required=False, type=float, default=0.9, help='the outlier ratio (default = 0.09)')
+	parser.add_argument('-GraphConversionMethod', required=False, default='WKNN', choices=['None','WKNN'], help='How to convert distance into graph (default = WKNN)')
 	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'average'], help='chunking method')
-	parser.add_argument('-o', dest='outfile', required=False, metavar='str', default='stdout', help='outfile')
 	args=parser.parse_args()
 	
-	idea = IDEA()
-	idea.fit(X=args.weightfile, k=args.k, K=args.K, M=args.M, chunkingMethod=chunkingMethod, Xtype=args.weightType)
 
-	if args.outfile == 'stdout':
+	global_starttime=time.time()
+	idea = IDEA()
+	idea.fit(X=args.datafile, k=args.k, Xtype=args.dataType, nNeighbor=args.nNeighbor, nChunk=args.nChunk, nIteration=args.nIteration, outlierRatio=args.outlierRatio, GraphConversionMethod=args.GraphConversionMethod, chunkingMethod=args.chunkingMethod)
+
+	# output clustering results
+	if args.o == 'stdout':
 		OF=sys.stdout
 	else:
-		OF=open(args.outfile,'w')
+		OF=open(args.o,'w')
 
-	print '\n'.join(map(str,idea.linkageMatrix))
 	for nodename, membership in zip(idea.lst_name, idea.membership):
 		OF.write('\t'.join(map(str,[nodename,membership]))+'\n')
+	OF.close()
+
+	# output clustering tree
+	if args.o2 != None:
+		OF=open(args.o2,'w')
+		for x in idea.linkageMatrix:
+			OF.write('\t'.join(map(str,x))+'\n')
+		OF.close()
+
+	# output clustering tree
+	if args.o3 != None:
+		idea.wKNNgraph.write(args.o3)
