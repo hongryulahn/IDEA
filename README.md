@@ -7,8 +7,10 @@ IDEA clustering framework
 Python 3
 
 ## REQUIREMENT
-Pymetis (https://pypi.org/project/PyMetis/)
+scikit-learn (https://scikit-learn.org/stable/install.html)
+PyMetis (https://pypi.org/project/PyMetis/)
 ```bash
+pip install scikit-learn
 pip install pybind11
 pip install pymetis
 ```
