@@ -8,14 +8,16 @@ import random
 import heapq
 from WKNNgraph import *
 
-def cutTree(linkageMatrix, t, outlierRatio=None):
+def cutTree(linkageMatrix, t, outlierRatio=None, maxLeafID=None):
 	dic_parent2childs={}
 	dic_child2parent={}
 	dic_node2weight={}
 	dic_node2nNode={}
 	dic_node2averageWeight={}
 	set_leaf=set()
-	for c, x in enumerate(linkageMatrix,len(linkageMatrix)+1):
+	if maxLeafID == None:
+		maxLeafID = len(linkageMatrix)
+	for c, x in enumerate(linkageMatrix,maxLeafID+1):
 		c1, c2, w, nNode = int(x[0]), int(x[1]), x[2], x[3]
 		if c1 not in dic_parent2childs:
 			set_leaf.add(c1)
@@ -31,9 +33,8 @@ def cutTree(linkageMatrix, t, outlierRatio=None):
 	set_root={root}
 	set_outlierRoot=set()
 	dic_root2name={root:'0'}
-	round = 0
 	while len(set_root) < t:
-		target = sorted(set_root, key=lambda x:dic_node2weight.get(x,-np.inf),reverse=True)[0]
+		target = sorted(set_root, key=lambda x:(dic_node2weight.get(x,-np.inf),dic_node2nNode.get(x,1.0)),reverse=True)[0]
 		set_root.remove(target)
 		c1, c2 = dic_parent2childs[target]
 		if dic_node2nNode.get(c1,1.0) < dic_node2nNode.get(c2,1.0):
@@ -69,7 +70,7 @@ def cutTree(linkageMatrix, t, outlierRatio=None):
 		set_outlierRoot = set_outlierRoot2
 	set_root = set_root2
 
-	lst_cluster = [None for i in range(len(set_leaf))]
+	dic_node2cluster={}
 	for cluster, root in enumerate(sorted(set_root, key=lambda x:dic_root2name[x])):
 		set_child = {root}
 		while True:
@@ -77,15 +78,15 @@ def cutTree(linkageMatrix, t, outlierRatio=None):
 				break
 			target = set_child.pop()
 			if target in set_leaf:
-				lst_cluster[target] = cluster
+				dic_node2cluster[target] = cluster
 				continue
 			c1, c2 = dic_parent2childs[target]
 			if c1 in set_leaf:
-				lst_cluster[c1]= cluster
+				dic_node2cluster[c1]= cluster
 			else:
 				set_child.add(c1)
 			if c2 in set_leaf:
-				lst_cluster[c2]= cluster
+				dic_node2cluster[c2]= cluster
 			else:
 				set_child.add(c2)
 
@@ -97,18 +98,18 @@ def cutTree(linkageMatrix, t, outlierRatio=None):
 				break
 			target = set_child.pop()
 			if target in set_leaf:
-				lst_cluster[target] = cluster
+				dic_node2cluster[target] = cluster
 				continue
 			c1, c2 = dic_parent2childs[target]
 			if c1 in set_leaf:
-				lst_cluster[c1]= cluster
+				dic_node2cluster[c1]= cluster
 			else:
 				set_child.add(c1)
 			if c2 in set_leaf:
-				lst_cluster[c2]= cluster
+				dic_node2cluster[c2]= cluster
 			else:
 				set_child.add(c2)
-	return lst_cluster
+	return dic_node2cluster
 
 def computeSeparationGain(dic_key2value):
 	w11,w22,w12 = dic_key2value['sumWeight1'],dic_key2value['sumWeight2'],dic_key2value['sumWeight12']
@@ -892,7 +893,7 @@ class ChunkTree:
 		if chunkingMethod == 'average':
 			import BaselineHC_fast
 			linkageMatrix = BaselineHC_fast.fit(self.wKNNgraph.dic_node2node_weight, linkageMethod=chunkingMethod)
-			dic_node2cluster = cutTree(linkageMatrix, t=nChunk)
+			dic_node2cluster = cutTree(linkageMatrix, t=nChunk, maxLeafID=max(self.set_node))
 			self.dic_chunk2nodes={}
 			self.dic_node2chunk={}
 			dic_cluster2chunk={}
@@ -1308,11 +1309,8 @@ class ChunkTree:
 				set_forbiddenPair=set()
 				set_forbiddenPair.add(K(self.bestLinkageMatrix[currentRound][0],self.bestLinkageMatrix[currentRound][1]))
 			for i, agent in enumerate(lst_agent):
-				#if len(linkageMatrix) == 0 or K(agent.linkageMatrix[currentRound][0],agent.linkageMatrix[currentRound][1]) != K(self.bestLinkageMatrix[currentRound][0],self.bestLinkageMatrix[currentRound][1]):
-				#agent.fit(linkageMatrix,set_forbiddenPair=set_forbiddenPair)
 				agent.fit(linkageMatrix)
 				if agent.linkageMatrix[-1][3]['cost'] < bestCost:
-					#print 'here1'
 					lst_best_i=[i]
 					bestCost=agent.linkageMatrix[-1][3]['cost']
 					self.bestLinkageMatrix=list(agent.linkageMatrix)
@@ -1320,7 +1318,6 @@ class ChunkTree:
 				elif agent.linkageMatrix[-1][3]['cost'] == bestCost:
 					lst_best_i.append(i)
 					bestMethod+=';'+agent.linkageMethod
-			#print 'herex', lst_best_i, bestMethod, bestCost
 			for i in lst_best_i:
 				if i not in dic_i2score:
 					dic_i2score[i]=0.0
@@ -1341,7 +1338,6 @@ class ChunkTree:
 			for n in range(nIter):
 				lst_agent[best_i].fit(linkageMatrix,set_forbiddenPair=set_forbiddenPair)
 				if lst_agent[best_i].linkageMatrix[-1][3]['cost'] < bestCost:
-					#print 'here2'
 					bestCost=lst_agent[best_i].linkageMatrix[-1][3]['cost']
 					self.bestLinkageMatrix=list(lst_agent[best_i].linkageMatrix)
 				set_forbiddenPair2=set()
@@ -1351,48 +1347,30 @@ class ChunkTree:
 						if pair not in set_forbiddenPair:
 							set_forbiddenPair2.add(pair)
 				if len(set_forbiddenPair2) == 0:
-					#print 'ooooo'
 					break
 				set_forbiddenPair |= set_forbiddenPair2
 			lst_agent[best_i].linkageMatrix = list(self.bestLinkageMatrix)
-			#print 'herey', lst_best_i, bestMethod, bestCost
 			self.bestMethod.append(bestMethod)
 			set_cluster.remove(self.bestLinkageMatrix[currentRound][0])
 			set_cluster.remove(self.bestLinkageMatrix[currentRound][1])
 			set_cluster.add(self.bestLinkageMatrix[currentRound][2])
 			new_cluster+=1
 			currentRound+=1
-		print 'asdf',sorted(dic_method2score.items(),key=lambda x:x[1],reverse=True)
 		return
 
 	def membershipRefinement(self):
 		return
 
-	def fit(self, nChunk='auto', chunkingMethod='metis', skipEnsembleRatio=None): 
-		#assert(nChunk == 'auto' or type(nChunk)==int),(
-		#	"nChunk must be 'auto' or int")
-		assert(self.wKNNgraph != None),(
-			"wKNNgraph must not be set before fitting")
+	def fit(self, nChunk='auto', chunkingMethod='metis'): 
+		assert(nChunk == 'auto' or type(nChunk)==int),("nChunk must be 'auto' or int")
+		assert(self.wKNNgraph != None),("wKNNgraph must not be set before fitting")
 		nNode = len(self.set_node)
 		if nChunk == 'auto':
 			nChunk=80+int(np.log2(nNode))
 		else:
-			nChunk=int(nChunk)+int(np.log2(nNode))
-		if skipEnsembleRatio != None and self.dic_chunk2nodes != None and len(self.dic_chunk2nodes) > nChunk*skipEnsembleRatio and self.bestLinkageMatrix != None and len(self.bestLinkageMatrix) > 1:
-			print 'kkk chunkEnsemble skipped'
-			ensemble = False
-			pass
-		else:
-			print self.ID, 'chunking'
-			self.chunking(nChunk, chunkingMethod=chunkingMethod)
-			#for node in self.set_node:
-			#	print '\t'.join(map(str,[self.wKNNgraph.dic_node2name[node],'_'.join(map(str,[self.ID,self.dic_node2chunk[node]]))]))
-			print self.ID, 'ensembleClustering'
-			self.chunkEnsembleClustering()
-			ensemble = True
-		#print self.ID, 'membershipRefinement'
-		#self.membershipRefinement()
-		return ensemble
+			nChunk=int(nChunk)
+		self.chunking(nChunk, chunkingMethod=chunkingMethod)
+		self.chunkEnsembleClustering()
 
 	def halfSplit(self):
 		if len(self.set_node) <= 1:
@@ -1507,8 +1485,7 @@ class IDEA:
 	def fit(self, X, k, Xtype='graph', nNeighbor=10, nChunk='auto', nIteration='auto', outlierRatio=0.09, GraphConversionMethod='WKNN', chunkingMethod='metis', costFunction=lambda weightSum, nNode: weightSum*nNode*nNode):
 		if nIteration == 'auto':
 			nIteration=2+int(np.sqrt(k))
-		assert(Xtype in ['datapoints', 'similarity', 'dissimilarity']),(
-			"Xtype must be one of the 'graph', 'similarity', 'dissimilarity'")
+		assert(Xtype in ['datapoints', 'similarity', 'dissimilarity']),("Xtype must be one of the 'graph', 'similarity', 'dissimilarity'")
 		wKNNgraph = WKNNgraph()
 		if Xtype == 'datapoints':
 			wKNNgraph.constructGraphByData(filename=X, metric='euclidean', nNeighbor=nNeighbor)
@@ -1538,7 +1515,7 @@ class IDEA:
 			if iteration >= nIteration or len(lst_subtree)==nNode:
 				break
 			subtree=lst_subtree.pop(0)
-			iteration += int(subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod))
+			subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod)
 			subtree.halfSplit()
 			subtree1, subtree2= subtree.subtree1, subtree.subtree2
 			if subtree1.bestLinkageMatrix == None or len(subtree1.bestLinkageMatrix) == 0:
@@ -1566,7 +1543,9 @@ class IDEA:
 				tmplinkageMatrix[-1][2]=subtree.ID
 				linkageMatrix+=tmplinkageMatrix
 		self.linkageMatrix = arrangeLinkageMatrix(linkageMatrix)
-		self.membership = cutTree(self.linkageMatrix,k,outlierRatio=outlierRatio)###
+		dic_node2cluster = cutTree(self.linkageMatrix,k,outlierRatio=outlierRatio)###
+		assert(max(dic_node2cluster.keys())==len(dic_node2cluster)-1),("error")
+		self.membership = [cluster for node, cluster in sorted(dic_node2cluster.items())]
 		self.wKNNgraph = wKNNgraph
 		return
 		

@@ -72,16 +72,19 @@ class WKNNgraph:
 		lst_point=[]
 		for node, line in enumerate(IF):
 			s=line.strip().split()
-			name, point = s[0], map(float,s[1:])
+			name, point = s[0], list(map(float,s[1:]))
 			self.dic_node2name[node]=name
 			dic_name2node[name]=node
 			lst_point.append(point)
 		IF.close()
 		#self.data = np.array(lst_point)
 		X=np.array(lst_point)
-		import sklearn.neighbors
-		tree = sklearn.neighbors.KDTree(X, metric=metric)
-		dist, ind = tree.query(X, k=nNeighbor+1)
+		#import sklearn.neighbors
+		#tree = sklearn.neighbors.KDTree(X, metric=metric)
+		from sklearn.neighbors import NearestNeighbors
+		tree = NearestNeighbors(n_neighbors=nNeighbor+1, algorithm='kd_tree', metric=metric)
+		tree.fit(X)
+		dist, ind = tree.kneighbors(X)
 
 		def K(c1,c2):
 			if c1 < c2:
@@ -116,7 +119,7 @@ class WKNNgraph:
 
 		dic_node2average={}
 		for n1 in self.dic_node2node_weight.keys():
-			dic_node2average[n1]=np.mean(self.dic_node2node_weight[n1].values())
+			dic_node2average[n1]=np.mean(list(self.dic_node2node_weight[n1].values()))
 				
 		for n1 in self.dic_node2node_weight.keys():
 			for n2, weight in self.dic_node2node_weight[n1].items():
@@ -239,7 +242,7 @@ class WKNNgraph:
 				name1, name2 = self.dic_node2name[n1], self.dic_node2name[n2]
 				if name1 >= name2:
 					continue
-				OF.write('\t'.join(map(str,[name1,name2,weight]))+'\n')
+				OF.write('\t'.join(list(map(str,[name1,name2,weight])))+'\n')
 		OF.close()
 
 	def toMatrix(self,weightType='similarity'):
