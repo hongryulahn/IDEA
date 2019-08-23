@@ -8,6 +8,9 @@ Python 3
 
 ## REQUIREMENT
 scikit-learn (https://scikit-learn.org/stable/install.html)
+```bash
+pip install scikit-learn
+```
 PyMetis (https://pypi.org/project/PyMetis/)
 ```bash
 pip install scikit-learn
