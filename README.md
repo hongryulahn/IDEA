@@ -13,7 +13,6 @@ pip install scikit-learn
 ```
 PyMetis (https://pypi.org/project/PyMetis/)
 ```bash
-pip install scikit-learn
 pip install pybind11
 pip install pymetis
 ```
