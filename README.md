@@ -1,4 +1,6 @@
-# IDEA
+IDEA
+====
+
 IDEA clustering framework
 
 ## ENVIRONMENT
@@ -6,11 +8,13 @@ Python 3
 
 ## REQUIREMENT
 Pymetis (https://pypi.org/project/PyMetis/)
-
+```bash
 pip install pybind11
 pip install pymetis
+```
 
 ## EXAMPLE
+```bash
 python IDEA.py data/A01.data.points 15 -weightType datapoint -o A01.cluster -o2 A01.linkage -o3 A01.graph
 python IDEA.py data/A02.data.points 31 -weightType datapoint -o A02.cluster -o2 A02.linkage -o3 A02.graph
 python IDEA.py data/A03.data.points 35 -weightType datapoint -o A03.cluster -o2 A03.linkage -o3 A03.graph
@@ -31,3 +35,4 @@ python IDEA.py data/C05.data.points 10 -weightType datapoint -o C05.cluster -o2 
 python IDEA.py data/C06.data.points 9 -weightType datapoint -o C06.cluster -o2 C06.linkage -o3 C06.graph
 python IDEA.py data/D01.data.dist.fullmatrix 11 -weightType dissimilarity -o D01.cluster -o2 D01.linkage -o3 D01.graph
 python IDEA.py data/D02.data.dist.sparsematrix 5 -weightType dissimilarity -o D02.cluster -o2 D02.linkage -o3 D02.graph
+```
