@@ -3,14 +3,17 @@ IDEA
 
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a hierarchical clustering framework for arbitrary shape data (Python 3)
 
-## CITATION
-Ahn H, Jung I, Chae H, Oh M, Kim I, Kim S\*. "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework with density-based tree search for arbitrary shape data" 2019. (In revision)
+<br>
+<br>
+## Citation
+Ahn H, Jung I, Chae H, Oh M, Kim I, Kim S\*. "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework with density-based tree search for arbitrary shape data" 2019. (Under review)
 
-
-## REQUIREMENT
-scikit-learn (https://scikit-learn.org/stable/install.html) &
-
-PyMetis (https://pypi.org/project/PyMetis/)
+<br>
+<br>
+## Requirement
+- Python 3
+- scikit-learn (https://scikit-learn.org/stable/install.html)
+- PyMetis (https://pypi.org/project/PyMetis/)
 
 ```bash
 pip install scikit-learn
@@ -18,7 +21,9 @@ pip install pybind11
 pip install pymetis
 ```
 
-## RUNNING EXAMPLE
+<br>
+<br>
+## Running example
 ```bash
 python IDEA.py data/A01.data.points 15 -dataType datapoints -o A01.cluster -o2 A01.linkage -o3 A01.graph
 python IDEA.py data/A02.data.points 31 -dataType datapoints -o A02.cluster -o2 A02.linkage -o3 A02.graph
@@ -26,28 +31,30 @@ python IDEA.py data/A03.data.points 35 -dataType datapoints -o A03.cluster -o2 A
 python IDEA.py data/A04.data.points 15 -dataType datapoints -o A04.cluster -o2 A04.linkage -o3 A04.graph
 python IDEA.py data/A05.data.points 15 -dataType datapoints -o A05.cluster -o2 A05.linkage -o3 A05.graph
 python IDEA.py data/A06.data.points 15 -dataType datapoints -o A06.cluster -o2 A06.linkage -o3 A06.graph
-python IDEA.py data/B01.data.points 3 -dataType datapoints -o B01.cluster -o2 B01.linkage -o3 B01.graph
-python IDEA.py data/B02.data.points 6 -dataType datapoints -o B02.cluster -o2 B02.linkage -o3 B02.graph
-python IDEA.py data/B03.data.points 9 -dataType datapoints -o B03.cluster -o2 B03.linkage -o3 B03.graph
-python IDEA.py data/B04.data.points 8 -dataType datapoints -o B04.cluster -o2 B04.linkage -o3 B04.graph
+python IDEA.py data/B01.data.points 3  -dataType datapoints -o B01.cluster -o2 B01.linkage -o3 B01.graph
+python IDEA.py data/B02.data.points 6  -dataType datapoints -o B02.cluster -o2 B02.linkage -o3 B02.graph
+python IDEA.py data/B03.data.points 9  -dataType datapoints -o B03.cluster -o2 B03.linkage -o3 B03.graph
+python IDEA.py data/B04.data.points 8  -dataType datapoints -o B04.cluster -o2 B04.linkage -o3 B04.graph
 python IDEA.py data/B05.data.points 10 -dataType datapoints -o B05.cluster -o2 B05.linkage -o3 B05.graph
-python IDEA.py data/B06.data.points 9 -dataType datapoints -o B06.cluster -o2 B06.linkage -o3 B06.graph
-python IDEA.py data/C01.data.points 7 -dataType datapoints -o C01.cluster -o2 C01.linkage -o3 C01.graph
-python IDEA.py data/C02.data.points 6 -dataType datapoints -o C02.cluster -o2 C02.linkage -o3 C02.graph
-python IDEA.py data/C03.data.points 9 -dataType datapoints -o C03.cluster -o2 C03.linkage -o3 C03.graph
-python IDEA.py data/C04.data.points 8 -dataType datapoints -o C04.cluster -o2 C04.linkage -o3 C04.graph
+python IDEA.py data/B06.data.points 9  -dataType datapoints -o B06.cluster -o2 B06.linkage -o3 B06.graph
+python IDEA.py data/C01.data.points 7  -dataType datapoints -o C01.cluster -o2 C01.linkage -o3 C01.graph
+python IDEA.py data/C02.data.points 6  -dataType datapoints -o C02.cluster -o2 C02.linkage -o3 C02.graph
+python IDEA.py data/C03.data.points 9  -dataType datapoints -o C03.cluster -o2 C03.linkage -o3 C03.graph
+python IDEA.py data/C04.data.points 8  -dataType datapoints -o C04.cluster -o2 C04.linkage -o3 C04.graph
 python IDEA.py data/C05.data.points 10 -dataType datapoints -o C05.cluster -o2 C05.linkage -o3 C05.graph
-python IDEA.py data/C06.data.points 9 -dataType datapoints -o C06.cluster -o2 C06.linkage -o3 C06.graph
+python IDEA.py data/C06.data.points 9  -dataType datapoints -o C06.cluster -o2 C06.linkage -o3 C06.graph
 python IDEA.py data/D01.data.dist.fullmatrix 11 -dataType dissimilarity -o D01.cluster -o2 D01.linkage -o3 D01.graph
 python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.cluster -o2 D02.linkage -o3 D02.graph
 ```
 
-## DATA
+<br>
+<br>
+## Data
 20 datasets 
 
-- 6 overlapped datapoints (A01 - A06)
+- 6 convex and overlapped datapoints (A01 - A06)
 - 6 non-convex datapoints (B01 - B06)
-- 6 non-convex noisy datapoints (C01 - C06)
+- 6 non-convex and noisy datapoints (C01 - C06)
 - 2 biological networks (D01 - D02))
 
 | No. | The type of data | The number of clusters | The number of data points | Sources                          |
@@ -73,7 +80,9 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 | D01 | Distance matrix  | 11                     | 301                       | [Pollen et al., 2014]            |
 | D02 | Distance graph   | 5                      | 5804                      | [Ahn et al., 2017]               |
 
-## VISUALIZATION RESULT
+<br>
+<br>
+## Visualization result
 ![Visualization result](image/visualization_result.jpg)
 
 [Veenman et al., 2002]: https://doi.org/10.1109/TPAMI.2002.1033218
