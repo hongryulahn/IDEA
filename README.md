@@ -4,12 +4,10 @@ IDEA
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a hierarchical clustering framework for arbitrary shape data (Python 3)
 
 <br>
-<br>
 
 ## Citation
 Ahn H, Jung I, Chae H, Oh M, Kim I, Kim S\*. "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework with density-based tree search for arbitrary shape data" 2019. (Under review)
 
-<br>
 <br>
 
 ## Requirement
@@ -23,7 +21,6 @@ pip install pybind11
 pip install pymetis
 ```
 
-<br>
 <br>
 
 ## Running example
@@ -50,7 +47,6 @@ python IDEA.py data/D01.data.dist.fullmatrix 11 -dataType dissimilarity -o D01.c
 python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.cluster -o2 D02.linkage -o3 D02.graph
 ```
 
-<br>
 <br>
 
 ## Data
@@ -85,7 +81,6 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 | D02 | Distance graph   | 5                      | 5804                      | [Ahn et al., 2017]               |
 
 <br>
-<br>
 
 ## Visualization result
 ![Visualization result](image/visualization_result.jpg)
@@ -99,4 +94,3 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 [Jain,2010]: https://doi.org/10.1016/j.patrec.2009.09.011
 [Pollen et al., 2014]: https://doi.org/10.1038/nbt.2967
 [Ahn et al., 2017]: https://www.ncbi.nlm.nih.gov/pubmed/28663756
-
