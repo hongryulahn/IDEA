@@ -69,6 +69,9 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 | D01 | Distance matrix  | 11                     | 301                       | [Pollen et al., 2014]            |
 | D02 | Distance graph   | 5                      | 5804                      | [Ahn et al., 2017]               |
 
+## VISUALIZATION RESULTS
+![Visualization results](image/visualization_results.jpg)
+
 [Veenman et al., 2002]: https://doi.org/10.1109/TPAMI.2002.1033218
 [Karkkainen and Franti, 2002]: https://doi.org/10.1109/ICPR.2002.1048283
 [Franti and Virmajoki, 2006]: https://doi.org/10.1016/j.patcog.2005.09.012
