@@ -18,16 +18,16 @@ pip install pymetis
 ```
 
 ## DATA
-20 datasets (18 datapoints, 2 biological networks)
+20 datasets (6 overlapped datapoints(A01 - A06), 6 non-convex datapoints (B01 - B06), 6 non-convex noisy datapoints (C01 - C06), 2 biological networks (D01 - D02))
 
 | No. | The type of data | The number of clusters | The number of data points | Sources                          |
 |-----|------------------|------------------------|---------------------------|----------------------------------|
 | A01 | Data points      | 15                     | 600                       | [Veenman et al., 2002]           |
 | A02 | Data points      | 31                     | 3100                      | [Veenman et al., 2002]           |
-| A03 | Data points      | 35                     | 5250                      | [K¨arkk¨ainen and Fr¨anti, 2002] |
-| A04 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
-| A05 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
-| A06 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
+| A03 | Data points      | 35                     | 5250                      | [Karkkainen and Franti, 2002] |
+| A04 | Data points      | 15                     | 5000                      | [Franti and Virmajoki, 2006]    |
+| A05 | Data points      | 15                     | 5000                      | [Franti and Virmajoki, 2006]    |
+| A06 | Data points      | 15                     | 5000                      | [Franti and Virmajoki, 2006]    |
 | B01 | Data points      | 3                      | 312                       | [Chang and Yeung, 2008]          |
 | B02 | Data points      | 6                      | 7236                      | [Karypis, 2002]                  |
 | B03 | Data points      | 9                      | 9208                      | [Karypis et al., 1999]           |
@@ -68,8 +68,8 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 ```
 
 [Veenman et al., 2002]: https://doi.org/10.1109/TPAMI.2002.1033218
-[K¨arkk¨ainen and Fr¨anti, 2002]: https://doi.org/10.1109/ICPR.2002.1048283
-[Fr¨anti and Virmajoki, 2006]: https://doi.org/10.1016/j.patcog.2005.09.012
+[Karkk¨ainen and Franti, 2002]: https://doi.org/10.1109/ICPR.2002.1048283
+[Franti and Virmajoki, 2006]: https://doi.org/10.1016/j.patcog.2005.09.012
 [Chang and Yeung, 2008]: https://doi.org/10.1016/j.patcog.2007.04.010
 [Karypis, 2002]: https://www.cs.umn.edu/research/technical_reports/view/02-017
 [Karypis et al., 1999]: https://doi.org/10.1109/2.781637
