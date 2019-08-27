@@ -17,6 +17,31 @@ pip install pybind11
 pip install pymetis
 ```
 
+## DATA
+20 datasets (18 datapoints, 2 biological networks)
+| No. | The type of data | The number of clusters | The number of data points | Sources                          |
+|-----|------------------|------------------------|---------------------------|----------------------------------|
+| A01 | Data points      | 15                     | 600                       | [Veenman et al., 2002]           |
+| A02 | Data points      | 31                     | 3100                      | [Veenman et al., 2002]           |
+| A03 | Data points      | 35                     | 5250                      | [K¨arkk¨ainen and Fr¨anti, 2002] |
+| A04 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
+| A05 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
+| A06 | Data points      | 15                     | 5000                      | [Fr¨anti and Virmajoki, 2006]    |
+| B01 | Data points      | 3                      | 312                       | [Chang and Yeung, 2008]          |
+| B02 | Data points      | 6                      | 7236                      | [Karypis, 2002]                  |
+| B03 | Data points      | 9                      | 9208                      | [Karypis et al., 1999]           |
+| B04 | Data points      | 8                      | 7677                      | [Karypis et al., 1999]           |
+| B05 | Data points      | 10                     | 7676                      | [Ahn et al., 2019]               |
+| B06 | Data points      | 9                      | 7675                      | [Ahn et al., 2019]               |
+| C01 | Data points      | 7                      | 3673                      | [Jain,2010]                      |
+| C02 | Data points      | 6                      | 8000                      | [Karypis, 2002]                  |
+| C03 | Data points      | 9                      | 10000                     | [Karypis et al., 1999]           |
+| C04 | Data points      | 8                      | 8000                      | [Karypis et al., 1999]           |
+| C05 | Data points      | 10                     | 8000                      | [Ahn et al., 2019]               |
+| C06 | Data points      | 9                      | 8000                      | [Ahn et al., 2019]               |
+| D01 | Distance matrix  | 11                     | 301                       | [Pollen et al., 2014]            |
+| D02 | Distance graph   | 5                      | 5804                      | [Ahn et al., 2017]               |
+
 ## EXAMPLE
 ```bash
 python IDEA.py data/A01.data.points 15 -dataType datapoints -o A01.cluster -o2 A01.linkage -o3 A01.graph
@@ -40,3 +65,14 @@ python IDEA.py data/C06.data.points 9 -dataType datapoints -o C06.cluster -o2 C0
 python IDEA.py data/D01.data.dist.fullmatrix 11 -dataType dissimilarity -o D01.cluster -o2 D01.linkage -o3 D01.graph
 python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.cluster -o2 D02.linkage -o3 D02.graph
 ```
+
+[Veenman et al., 2002]: https://doi.org/10.1109/TPAMI.2002.1033218
+[K¨arkk¨ainen and Fr¨anti, 2002]: https://doi.org/10.1109/ICPR.2002.1048283
+[Fr¨anti and Virmajoki, 2006]: https://doi.org/10.1016/j.patcog.2005.09.012
+[Chang and Yeung, 2008]: https://doi.org/10.1016/j.patcog.2007.04.010
+[Karypis, 2002]: https://www.cs.umn.edu/research/technical_reports/view/02-017
+[Karypis et al., 1999]: https://doi.org/10.1109/2.781637
+[Jain,2010]: https://doi.org/10.1016/j.patrec.2009.09.011
+[Pollen et al., 2014]: https://doi.org/10.1038/nbt.2967
+[Ahn et al., 2017]: https://www.ncbi.nlm.nih.gov/pubmed/28663756
+
