@@ -1,7 +1,11 @@
 IDEA
 ====
 
-IDEA clustering framework (Python 3)
+IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a hierarchical clustering framework for arbitrary shape data (Python 3)
+
+## CITATION
+Ahn H, Jung I, Chae H, Oh M, Kim I, Kim S\*. "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework with density-based tree search for arbitrary shape data" 2019. (In revision)
+
 
 ## REQUIREMENT
 scikit-learn (https://scikit-learn.org/stable/install.html) &
