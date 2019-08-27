@@ -1,10 +1,7 @@
 IDEA
 ====
 
-IDEA clustering framework
-
-## ENVIRONMENT
-Python 3
+IDEA clustering framework (Python 3)
 
 ## REQUIREMENT
 scikit-learn (https://scikit-learn.org/stable/install.html) &
@@ -42,7 +39,12 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 ```
 
 ## DATA
-20 datasets (6 overlapped datapoints(A01 - A06), 6 non-convex datapoints (B01 - B06), 6 non-convex noisy datapoints (C01 - C06), 2 biological networks (D01 - D02))
+20 datasets 
+
+- 6 overlapped datapoints (A01 - A06)
+- 6 non-convex datapoints (B01 - B06)
+- 6 non-convex noisy datapoints (C01 - C06)
+- 2 biological networks (D01 - D02))
 
 | No. | The type of data | The number of clusters | The number of data points | Sources                          |
 |-----|------------------|------------------------|---------------------------|----------------------------------|
