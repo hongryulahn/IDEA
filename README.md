@@ -1,7 +1,7 @@
 IDEA
 ====
 
-IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a hierarchical clustering framework for arbitrary shape data (Python 3)
+IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data (Python 3)
 
 <br>
 
