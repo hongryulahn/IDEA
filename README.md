@@ -19,6 +19,7 @@ pip install pymetis
 
 ## DATA
 20 datasets (18 datapoints, 2 biological networks)
+
 | No. | The type of data | The number of clusters | The number of data points | Sources                          |
 |-----|------------------|------------------------|---------------------------|----------------------------------|
 | A01 | Data points      | 15                     | 600                       | [Veenman et al., 2002]           |
