@@ -130,7 +130,7 @@ class WKNNgraph:
 					#self.dic_node2node_weight[n2][n1]=weight*(dic_node2average[n1]+dic_node2average[n2])*0.5
 
 
-	def constructGraph(self, filename, weightType, nNeighbor, l):
+	def constructGraph(self, filename, weightType, nNeighbor=10, l=0.5):
 		assert(weightType in ['similarity','dissimilarity']),(
 			"weightType must be in ['similarity','dissimilarity']")
 		IF=open(filename,'r')
@@ -223,7 +223,7 @@ class WKNNgraph:
 
 		dic_node2average={}
 		for n1 in self.dic_node2node_weight.keys():
-			dic_node2average[n1]=np.mean(self.dic_node2node_weight[n1].values())
+			dic_node2average[n1]=np.mean(list(self.dic_node2node_weight[n1].values()))
 				
 		for n1 in self.dic_node2node_weight.keys():
 			for n2, weight in self.dic_node2node_weight[n1].items():

@@ -1514,6 +1514,7 @@ class IDEA:
 		while True:
 			if iteration >= nIteration or len(lst_subtree)==nNode:
 				break
+			iteration+=1
 			subtree=lst_subtree.pop(0)
 			subtree.fit(nChunk=nChunk, chunkingMethod=chunkingMethod)
 			subtree.halfSplit()
