@@ -5,11 +5,6 @@ IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization ba
 
 <br>
 
-## Citation
-Ahn H, Jung I, Chae H, Oh M, Kim I, Kim S\*. "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework with density-based tree search for arbitrary shape data" 2019. (Under review)
-
-<br>
-
 ## Requirement
 - Python 3
 - scikit-learn (https://scikit-learn.org/stable/install.html)
