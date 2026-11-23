@@ -5,11 +5,11 @@
 - 마이너 (x.**Y**.0): 기본 결과가 같은 기능 추가·성능 개선
 - 메이저 (**X**.0.0): 기본 결과가 달라지는 알고리즘 변경
 
-논문 (IEEE BigData 2021) 결과는 `v1.0-paper` 로 재현한다.
+논문 (IEEE BigData 2021) 결과는 `v1.0.1` (= `v1.0-paper` + 오타 수정 하나) 로 재현한다.
 
 ## v1.1.0 — 2026-11-24
 
-원본(`v1.0-paper`, 커밋 `b4964c5`)의 알고리즘은 그대로 두고 구현만 최적화했다. 기본 옵션으로 실행하면
+원본(`v1.0-paper`, 커밋 `b4964c5`. 오타 수정판 `v1.0.1`)의 알고리즘은 그대로 두고 구현만 최적화했다. 기본 옵션으로 실행하면
 20개 데이터셋 모두에서 클러스터·linkage 출력이 원본과 **바이트 단위로 같다**
 (`-outlierRatio 0.09` 기준. 아래 "버그 수정" 참고). 그래프 청킹 방법을 선택 옵션으로 추가했다.
 
@@ -21,7 +21,7 @@
 | WNN λ (`l`) | 0.5 | 0.5 | rank 항과 neighborness 항의 가중 |
 | `-nChunk` (β) | auto = 80 + ⌊log₂N⌋ | auto | |
 | `-nIteration` | auto = 2 + ⌊√k⌋ | auto | 재귀 분할 횟수 |
-| `-outlierRatio` | 문서·`IDEA.fit` 0.09, **CLI 기본값 0.9 (버그)** | **0.09** (CLI 기본값 수정) | 0.9 에서는 거의 모든 점이 `-1` |
+| `-outlierRatio` (γ) | **0.09** (논문·`IDEA.fit`·도움말). 단 CLI 기본값은 오타로 0.9 | **0.09** | 오타는 v1.0.1 에서 수정 |
 | `-chunkingMethod` | `metis` (rMETIS: METIS 재귀 이분할 + 실루엣 파쇄·재배정 5회) | **`metis`** | 새 방법들은 평균 정확도가 더 낮음 (아래 표) |
 | 링크법 앙상블 | auto (11종) | auto (11종) | average, weighted, single, complete, deltaRev, deltaModularity, minPossibleEdgeCountNormalized, minNodeNormalized, minEdgeCountNormalized, minEdgeWeightNormalized, minModularityWeightNormalized |
 | 금지쌍 재탐색 | 10회 | 10회 | |
@@ -37,7 +37,7 @@
 같은 머신에서 20개를 동시에 실행했다 (`bench/run_bench.py -j 20`). 첫 두 열은 원본 코드다.
 "metis (현재 기본)" 열은 원본 0.09 열과 출력이 바이트 단위로 같다.
 
-| 데이터 | 원본 코드, CLI 기본값 (outlierRatio 0.9) | 원본 코드, outlierRatio 0.09 | metis (현재 기본) | leiden_cpm | leiden_mod | louvain | spectral | metis_kway |
+| 데이터 | v1.0-paper, CLI 기본값 그대로 (오타 0.9) | v1.0-paper + 0.09 (= v1.0.1, 논문 설정) | metis (현재 기본) | leiden_cpm | leiden_mod | louvain | spectral | metis_kway |
 |---|---|---|---|---|---|---|---|---|
 | A01 | 0.993 | 0.993 | 0.993 | 0.993 | 0.989 | 0.989 | 0.968 | 0.982 |
 | A02 | 0.000 | 0.938 | 0.938 | 0.931 | 0.938 | 0.936 | 0.910 | 0.909 |
@@ -64,7 +64,7 @@
 | 총 실행시간(s) | 272 | 275 | 60 | 60 | 64 | 51 | 111 | 84 |
 
 요약:
-- 원본 CLI 기본값(0.9)으로 README 예제를 돌리면 평균 ARI 0.115 다. 0.09 로 고치면 0.922 (논문 설정).
+- `v1.0-paper` 의 CLI 기본값 오타(0.9)로 README 예제를 돌리면 평균 ARI 0.115 다. 논문 설정 0.09 (= `v1.0.1` 기본값) 에서는 0.922.
 - 새 청킹 방법 중 원본 rMETIS(`metis`)보다 평균이 높은 것은 없다. A·B·C 계열에서는 대부분 ±0.01 안이고,
   차이는 주로 D02 에서 난다. rMETIS 의 실루엣 기반 파쇄·재배정이 희소한 생물 네트워크에서 효과가 크다.
 - `spectral`, `metis_kway` 는 비볼록·잡음 데이터(B01, C03 등)에서 크게 떨어진다.
@@ -102,9 +102,7 @@
   위와 같은 병합을 적용 (전에는 사실상 끝나지 않았다).
 
 **버그 수정**
-- CLI `-outlierRatio` 기본값 0.9 → 0.09 (도움말·`IDEA.fit` 기본값과 일치).
-  논문은 γ = 0.09 를 명시하므로 (Algorithm 1, §IV) **논문 수치에는 영향이 없다.**
-  `v1.0-paper` 에서 README 예제 명령을 그대로 실행할 때만 영향을 받는다 (`-outlierRatio 0.09` 를 붙이면 재현됨).
+- CLI `-outlierRatio` 기본값 오타 수정 `0.9` → `0.09` (`v1.0.1` 과 같은 수정). 아래 v1.0.1 항목 참고.
 - `chunking` 의 `nChunk <= 1` 분기: `for node in enumerate(...)` 가 튜플을 키로 넣던 문제.
 
 **검증·도구**
@@ -116,14 +114,23 @@
 ### 재현
 
 ```bash
-git worktree add ../IDEA_orig b4964c5          # 원본 코드
-python bench/run_bench.py ../IDEA_orig out_orig  -j 20 --extra "-outlierRatio 0.09"
+git worktree add ../IDEA_orig v1.0.1           # 논문 코드 (+ 오타 수정)
+python bench/run_bench.py ../IDEA_orig out_orig  -j 20
 python bench/run_bench.py .              out_metis -j 20 --ref out_orig
 for m in leiden_cpm leiden_mod louvain spectral metis_kway; do
   python bench/run_bench.py . out_$m -j 20 --extra "-chunkingMethod $m"; done
 python bench/compare_methods.py metis=out_metis leiden_cpm=out_leiden_cpm ...
 python tests/test_equivalence.py --orig ../IDEA_orig/IDEA.py
 ```
+
+## v1.0.1 — 2026-11-24 (버그 수정, 브랜치 `release/1.0.x`)
+- CLI `-outlierRatio` 기본값 오타 수정: `0.9` → `0.09`.
+  - 첫 업로드(2019-07-31, `8a21d04`)부터 명령행 인자 기본값에만 있던 오타다.
+    논문(Algorithm 1, §IV: γ = 0.09), 도움말, `IDEA.fit()` 기본값은 모두 0.09 이고 논문 실험도 0.09 로 했다.
+    **논문 수치에는 영향이 없다.**
+  - 오타 때문에 `v1.0-paper` 에서 README 예제 명령을 그대로 실행하면 거의 모든 점이 이상치(`-1`)로 나왔다.
+  - 그 밖의 코드 변경은 없다. 기본 옵션 결과가 `v1.0-paper` + `-outlierRatio 0.09` 와 20개 데이터셋 모두에서 같다.
+- `v1.0-paper` 태그는 그대로 두고 (공개 태그는 바꾸지 않는 관례), 그 릴리스 설명에 v1.0.1 을 쓰라는 경고를 달았다.
 
 ## v1.0-paper — 논문 출판 버전 (커밋 `b4964c5`)
 

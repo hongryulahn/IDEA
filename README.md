@@ -1,16 +1,18 @@
 IDEA
 ====
 
-> **Versions.** The results in the paper (IEEE BigData 2021) were produced with release
-> [`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper)
-> (`git checkout v1.0-paper`). The current version (`v1.1.0`) gives byte-identical
-> clustering output with the default options and is ~4.6x faster; changes, recommended
-> options and an accuracy comparison are listed in [CHANGELOG.md](CHANGELOG.md).
+> **Versions.** To reproduce the paper (IEEE BigData 2021) use release
+> [`v1.0.1`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0.1) (`git checkout v1.0.1`):
+> the paper code ([`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper))
+> plus one bug fix. The current version (`v1.1.0`) gives byte-identical clustering output with
+> the default options and is ~4.6x faster; changes, recommended options and an accuracy
+> comparison are listed in [CHANGELOG.md](CHANGELOG.md).
 >
-> **Note on `v1.0-paper`:** its command-line default for `-outlierRatio` was `0.9`, while the
-> paper, the help text and `IDEA.fit()` use `0.09`. The paper results are not affected, but the
-> example commands below run with `v1.0-paper` need `-outlierRatio 0.09` to reproduce them.
-> Fixed in `v1.1.0`.
+> **Bug fixed in `v1.0.1`:** a typo, present since the first upload, set the command-line default
+> of `-outlierRatio` to `0.9`. The paper, the help text and `IDEA.fit()` all use `0.09`, and the
+> paper experiments were run with 0.09, so the published results are not affected. With
+> `v1.0-paper` the example commands below mark almost every point as an outlier unless
+> `-outlierRatio 0.09` is added.
 
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data.
 
