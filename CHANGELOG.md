@@ -1,43 +1,43 @@
-# 변경 이력 (CHANGELOG)
+# Changelog
 
-버전 규칙 ([Semantic Versioning](https://semver.org/lang/ko/)):
-- 패치 (x.y.**Z**): 버그 수정
-- 마이너 (x.**Y**.0): 기본 결과가 같은 기능 추가·성능 개선
-- 메이저 (**X**.0.0): 기본 결과가 달라지는 알고리즘 변경
+Versioning follows [Semantic Versioning](https://semver.org/):
+- patch (x.y.**Z**): bug fixes
+- minor (x.**Y**.0): new features or performance improvements that keep the default results unchanged
+- major (**X**.0.0): algorithm changes that change the default results
 
-논문 (IEEE BigData 2021) 결과는 `v1.0.1` (= `v1.0-paper` + 오타 수정 하나) 로 재현한다.
+To reproduce the paper (IEEE BigData 2021), use `v1.0.1` (= `v1.0-paper` + one typo fix).
 
 ## v1.1.0 — 2026-11-24
 
-원본(`v1.0-paper`, 커밋 `b4964c5`. 오타 수정판 `v1.0.1`)의 알고리즘은 그대로 두고 구현만 최적화했다. 기본 옵션으로 실행하면
-20개 데이터셋 모두에서 클러스터·linkage 출력이 원본과 **바이트 단위로 같다**
-(`-outlierRatio 0.09` 기준. 아래 "버그 수정" 참고). 그래프 청킹 방법을 선택 옵션으로 추가했다.
+The algorithm of `v1.0-paper` / `v1.0.1` is unchanged; only its implementation was optimised. With the
+default options, the cluster and linkage outputs are **byte-identical** to `v1.0.1` on all 20 bundled
+datasets. Graph chunking methods were added as options.
 
-### 1. 옵션 비교: 원본 vs 현재 권장
+### 1. Options: original vs. recommended
 
-| 옵션 | 원본 v1.0-paper (논문 / 코드) | 현재 v1.1.0 권장값 | 비고 |
+| Option | Original `v1.0-paper` (paper / code) | Recommended in `v1.1.0` | Notes |
 |---|---|---|---|
-| `-nNeighbor` (α) | 10 | 10 | WNN 이웃 수 |
-| WNN λ (`l`) | 0.5 | 0.5 | rank 항과 neighborness 항의 가중 |
+| `-nNeighbor` (α) | 10 | 10 | number of neighbours of the WNN graph |
+| WNN λ (`l`) | 0.5 | 0.5 | weight between the rank term and the neighbourness term |
 | `-nChunk` (β) | auto = 80 + ⌊log₂N⌋ | auto | |
-| `-nIteration` | auto = 2 + ⌊√k⌋ | auto | 재귀 분할 횟수 |
-| `-outlierRatio` (γ) | **0.09** (논문·`IDEA.fit`·도움말). 단 CLI 기본값은 오타로 0.9 | **0.09** | 오타는 v1.0.1 에서 수정 |
-| `-chunkingMethod` | `metis` (rMETIS: METIS 재귀 이분할 + 실루엣 파쇄·재배정 5회) | **`metis`** | 새 방법들은 평균 정확도가 더 낮음 (아래 표) |
-| 링크법 앙상블 | auto (11종) | auto (11종) | average, weighted, single, complete, deltaRev, deltaModularity, minPossibleEdgeCountNormalized, minNodeNormalized, minEdgeCountNormalized, minEdgeWeightNormalized, minModularityWeightNormalized |
-| 금지쌍 재탐색 | 10회 | 10회 | |
-| numba | — | **설치 권장** | 없으면 순수 Python 경로 (결과 동일, 약 2배 느림) |
+| `-nIteration` (τ) | auto = 2 + ⌊√k⌋ | auto | number of recursive tree divisions |
+| `-outlierRatio` (γ) | **0.09** (paper, `IDEA.fit()`, help text); the command-line default was a typo (0.9) | **0.09** | typo fixed in `v1.0.1` |
+| `-chunkingMethod` | `metis` (rMETIS: recursive METIS bisection + 5 rounds of silhouette-based shatter / reassignment) | **`metis`** | the new methods have lower mean accuracy (table below) |
+| linkage ensemble | auto (11 methods) | auto (11 methods) | average, weighted, single, complete, deltaRev, deltaModularity, minPossibleEdgeCountNormalized, minNodeNormalized, minEdgeCountNormalized, minEdgeWeightNormalized, minModularityWeightNormalized |
+| forbidden-pair re-search | 10 rounds | 10 rounds | |
+| numba | — | **recommended** | without it the pure-Python path is used (same results, ~2x slower) |
 
-상황별 대안:
-- 거리행렬 입력 (D01 형식): `-chunkingMethod leiden_mod` 가 D01 에서 ARI 0.823 → 0.872 로 가장 좋았다.
-  단 D02 (희소 거리 그래프) 에서는 0.922 → 0.673 으로 떨어지므로 일반 권장은 아니다.
-- 속도 우선: `-chunkingMethod louvain` 이 가장 빠르다 (총 51초 vs 60초). 평균 ARI 는 0.015 낮다.
+Alternatives for specific cases:
+- Distance-matrix input (D01 format): `-chunkingMethod leiden_mod` was best on D01 (ARI 0.823 → 0.872).
+  It drops on D02 (sparse distance graph, 0.922 → 0.673), so it is not a general recommendation.
+- Speed first: `-chunkingMethod louvain` is the fastest (51 s vs. 60 s in total), with mean ARI 0.015 lower.
 
-### 2. 정확도 비교 (ARI, 20개 데이터셋)
+### 2. Accuracy (ARI, 20 bundled datasets)
 
-같은 머신에서 20개를 동시에 실행했다 (`bench/run_bench.py -j 20`). 첫 두 열은 원본 코드다.
-"metis (현재 기본)" 열은 원본 0.09 열과 출력이 바이트 단위로 같다.
+All 20 datasets were run concurrently on one machine (`bench/run_bench.py -j 20`). The first two columns are
+the original code. The "metis (default)" column is byte-identical to the `v1.0.1` column.
 
-| 데이터 | v1.0-paper, CLI 기본값 그대로 (오타 0.9) | v1.0-paper + 0.09 (= v1.0.1, 논문 설정) | metis (현재 기본) | leiden_cpm | leiden_mod | louvain | spectral | metis_kway |
+| Data | `v1.0-paper` as-is (typo 0.9) | `v1.0.1` (paper setting, 0.09) | metis (default) | leiden_cpm | leiden_mod | louvain | spectral | metis_kway |
 |---|---|---|---|---|---|---|---|---|
 | A01 | 0.993 | 0.993 | 0.993 | 0.993 | 0.989 | 0.989 | 0.968 | 0.982 |
 | A02 | 0.000 | 0.938 | 0.938 | 0.931 | 0.938 | 0.936 | 0.910 | 0.909 |
@@ -59,79 +59,88 @@
 | C06 | 0.002 | 0.941 | 0.941 | 0.941 | 0.938 | 0.939 | 0.850 | 0.940 |
 | D01 | 0.012 | 0.823 | 0.823 | 0.815 | 0.872 | 0.832 | 0.821 | 0.626 |
 | D02 | 0.011 | 0.922 | 0.922 | 0.626 | 0.673 | 0.651 | 0.748 | 0.656 |
-| **평균 ARI** | **0.1153** | **0.9223** | **0.9223** | **0.9051** | **0.9100** | **0.9071** | **0.8668** | **0.8493** |
-| **평균 NMI** | 0.1729 | 0.9349 | 0.9349 | 0.9239 | 0.9295 | 0.9273 | 0.9004 | 0.8878 |
-| 총 실행시간(s) | 272 | 275 | 60 | 60 | 64 | 51 | 111 | 84 |
+| **mean ARI** | **0.1153** | **0.9223** | **0.9223** | **0.9051** | **0.9100** | **0.9071** | **0.8668** | **0.8493** |
+| **mean NMI** | 0.1729 | 0.9349 | 0.9349 | 0.9239 | 0.9295 | 0.9273 | 0.9004 | 0.8878 |
+| total time (s) | 272 | 275 | 60 | 60 | 64 | 51 | 111 | 84 |
 
-요약:
-- `v1.0-paper` 의 CLI 기본값 오타(0.9)로 README 예제를 돌리면 평균 ARI 0.115 다. 논문 설정 0.09 (= `v1.0.1` 기본값) 에서는 0.922.
-- 새 청킹 방법 중 원본 rMETIS(`metis`)보다 평균이 높은 것은 없다. A·B·C 계열에서는 대부분 ±0.01 안이고,
-  차이는 주로 D02 에서 난다. rMETIS 의 실루엣 기반 파쇄·재배정이 희소한 생물 네트워크에서 효과가 크다.
-- `spectral`, `metis_kway` 는 비볼록·잡음 데이터(B01, C03 등)에서 크게 떨어진다.
+Summary:
+- Running the README example commands with the command-line default of `v1.0-paper` (typo, 0.9) gives a mean
+  ARI of 0.115; with the paper setting 0.09 (= default of `v1.0.1`) it is 0.922.
+- None of the new chunking methods beats the original rMETIS (`metis`) on average. On the A, B and C datasets
+  most differences are within ±0.01; the gap comes mainly from D02, where the silhouette-based shatter /
+  reassignment of rMETIS helps on the sparse biological network.
+- `spectral` and `metis_kway` drop considerably on non-convex / noisy data (e.g. B01, C03).
 
-### 3. 속도
+### 3. Speed
 
-| 단계 | 원본 v1.0 | v1.1 | |
+| | `v1.0.1` | `v1.1.0` | |
 |---|---|---|---|
-| 20개 데이터셋 총 실행시간 (`metis`) | 275 s | 60 s | 4.6배 |
-| WNN 그래프 구성 (20개 + 합성 4개 합) | 7.5 s | 2.7 s | 2.8배 |
-| 합성 30,000점 (k=12) 한 번 실행 | 23 s | 6.9 s | 3.3배 |
+| 20 bundled datasets, total (`metis`) | 275 s | 60 s | 4.6x |
+| WNN graph construction (20 datasets + 4 synthetic inputs) | 7.5 s | 2.7 s | 2.8x |
+| synthetic 30,000 points (k = 12), one run | 23 s | 6.9 s | 3.3x |
 
-### 4. 변경 내역
+### 4. Changes
 
-**성능 (결과 동일)**
-- `hierarchicalClusteringAgent.fit`: 병합할 때 살아 있는 클러스터 전체 대신 병합된 쌍의 이웃만 갱신 (인접 집합).
-  링크법별 갱신 함수를 한 번만 바인딩. 라운드 사이에 재생(replay)하는 병합 접두부를 캐시.
-  가중치가 같을 때는 원본의 set 순회 순서를 그대로 재현한다.
-- `IDEA_kernel.py` (선택, numba): 같은 병합 과정을 컴파일한 커널. 클러스터 512개 이하에서 사용.
-  순서에 민감한 경우 (가중치 동률, 후보 소진, NaN, 0 나누기) 는 정확한 Python 경로로 넘긴다.
-- `chunking`: 파쇄된 노드 재배정을 매번 전체 정렬하는 대신 힙으로 처리 (선택 순서 동일).
-- `WKNNgraph`: WNN 가중치(rank, neighborness, 노드 평균 보정)를 numpy 로 벡터화
-  (paper_RLclustering 의 `core/wnn.py` 방식 참고). 딕셔너리 키 순서·값·형(np.float64)까지 원본과 같다.
-  거리 동률은 원본 `set_edge` 순회 순서로 정렬, 제곱은 Python `**`, 노드 평균은 `np.add.reduce` (= `np.mean`).
-- METIS 호출을 `pymetis.CSRAdjacency` 로 변경 (`xadj/adjncy` 방식은 2027년 제거 예정).
+**Performance (results unchanged)**
+- `hierarchicalClusteringAgent.fit`: each merge updates only the neighbours of the merged pair (adjacency sets)
+  instead of scanning every live cluster; per-method update functions are bound once; the merge prefix replayed
+  between rounds is cached. Ties are resolved in exactly the original `set` iteration order.
+- `IDEA_kernel.py` (optional, numba): the same agglomeration, compiled; used for up to 512 clusters.
+  Order-sensitive cases (tied weights, exhausted candidate heap, NaN, division by zero) fall back to the exact
+  Python path.
+- `chunking`: shattered nodes are reassigned with a heap instead of re-sorting the list after every pick
+  (same pick order).
+- `WKNNgraph`: the WNN weighting (rank, neighbourness, node-average scaling) is vectorised with numpy. The graph
+  is identical to the original, including dict key order and value types (`np.float64`): distance ties follow
+  the original `set_edge` iteration order, the square uses Python's `**`, node means use `np.add.reduce`
+  (= `np.mean`).
+- METIS is called through `pymetis.CSRAdjacency` (the `xadj/adjncy` form is deprecated, removal planned for 2027).
 
-**기능**
-- `-chunkingMethod` 선택지 추가: `metis` (기본), `metis_kway`, `leiden_cpm`, `leiden_mod`, `louvain`, `spectral`, `average`.
-  `IDEA_chunking.py` (paper_RLclustering `core/partition.py` 에서 이식).
-  - Leiden/Louvain 은 청크 수가 nChunk 에 가깝도록 해상도를 탐색한다 (python-igraph 필요).
-  - 공통 후처리: 청크를 연결 요소로 나누고, nChunk 보다 많으면 가장 작은 조각을 가장 강하게
-    연결된 이웃 조각에 병합, 적으면 가장 큰 청크를 METIS 로 이분할.
-  - 연결 요소가 여러 개인 그래프는 원본과 같이 연결 요소를 청크로 쓴다.
-- `metis_kway`: 희소 그래프에서 연결 요소 분할 후 조각이 nChunk 를 크게 넘으면 (D02: 85개 요청에 2,433개)
-  위와 같은 병합을 적용 (전에는 사실상 끝나지 않았다).
+**Features**
+- `-chunkingMethod` choices: `metis` (default), `metis_kway`, `leiden_cpm`, `leiden_mod`, `louvain`,
+  `spectral`, `average` (`IDEA_chunking.py`).
+  - Leiden / Louvain search the resolution so that the number of chunks is close to nChunk (needs python-igraph).
+  - Common post-processing: chunks are split into connected components; if there are more than nChunk pieces,
+    the smallest piece is merged into the neighbouring piece it shares the most edge weight with; if there are
+    fewer, the largest chunk is bisected with METIS.
+  - Graphs with several connected components use the components as chunks, as in the original.
+- `metis_kway`: on sparse graphs the k-way parts can split into far more connected pieces than nChunk
+  (D02: 2,433 pieces for 85 chunks, which made the ensemble step effectively not terminate); the same merge is applied.
 
-**버그 수정**
-- CLI `-outlierRatio` 기본값 오타 수정 `0.9` → `0.09` (`v1.0.1` 과 같은 수정). 아래 v1.0.1 항목 참고.
-- `chunking` 의 `nChunk <= 1` 분기: `for node in enumerate(...)` 가 튜플을 키로 넣던 문제.
+**Bug fixes**
+- Command-line default of `-outlierRatio`: typo `0.9` → `0.09` (same fix as `v1.0.1`, see below).
+- `chunking`, branch `nChunk <= 1`: `for node in enumerate(...)` stored tuples as keys.
 
-**검증·도구**
-- `tests/test_equivalence.py`: WNN 그래프, 파쇄 노드 재배정, 청크·노드 단위 병합 에이전트 (11개 링크법,
-  접두부·금지쌍 포함) 를 원본과 무작위 비교. 정수 가중치로 동률을 일부러 많이 만든다.
-- `bench/run_bench.py`: 20개 데이터셋 실행, 시간·ARI·NMI, 기준 출력과 바이트 비교.
-- `bench/compare_methods.py`: 여러 실행 결과를 위 표 형식으로 정리.
+**Verification and tools**
+- `tests/test_equivalence.py`: randomised comparison with the original code of the WNN graph, the shattered-node
+  reassignment, and the chunk- and node-level agglomeration agents (11 linkage methods, with merge prefixes and
+  forbidden pairs). Integer weights are used on purpose to create many ties.
+- `bench/run_bench.py`: runs the 20 datasets; time, ARI, NMI, byte comparison with reference outputs.
+- `bench/compare_methods.py`: builds the comparison table above from several runs.
 
-### 재현
+### Reproduction
 
 ```bash
-git worktree add ../IDEA_orig v1.0.1           # 논문 코드 (+ 오타 수정)
-python bench/run_bench.py ../IDEA_orig out_orig  -j 20
-python bench/run_bench.py .              out_metis -j 20 --ref out_orig
+git worktree add ../IDEA_v101 v1.0.1           # paper code (+ typo fix)
+python bench/run_bench.py ../IDEA_v101 out_v101 -j 20
+python bench/run_bench.py .            out_metis -j 20 --ref out_v101
 for m in leiden_cpm leiden_mod louvain spectral metis_kway; do
   python bench/run_bench.py . out_$m -j 20 --extra "-chunkingMethod $m"; done
 python bench/compare_methods.py metis=out_metis leiden_cpm=out_leiden_cpm ...
-python tests/test_equivalence.py --orig ../IDEA_orig/IDEA.py
+python tests/test_equivalence.py --orig ../IDEA_v101/IDEA.py
 ```
 
-## v1.0.1 — 2026-11-24 (버그 수정, 브랜치 `release/1.0.x`)
-- CLI `-outlierRatio` 기본값 오타 수정: `0.9` → `0.09`.
-  - 첫 업로드(2019-07-31, `8a21d04`)부터 명령행 인자 기본값에만 있던 오타다.
-    논문(Algorithm 1, §IV: γ = 0.09), 도움말, `IDEA.fit()` 기본값은 모두 0.09 이고 논문 실험도 0.09 로 했다.
-    **논문 수치에는 영향이 없다.**
-  - 오타 때문에 `v1.0-paper` 에서 README 예제 명령을 그대로 실행하면 거의 모든 점이 이상치(`-1`)로 나왔다.
-  - 그 밖의 코드 변경은 없다. 기본 옵션 결과가 `v1.0-paper` + `-outlierRatio 0.09` 와 20개 데이터셋 모두에서 같다.
-- `v1.0-paper` 태그는 그대로 두고 (공개 태그는 바꾸지 않는 관례), 그 릴리스 설명에 v1.0.1 을 쓰라는 경고를 달았다.
+## v1.0.1 — 2026-11-24 (bug fix, branch `release/1.0.x`)
+- Command-line default of `-outlierRatio`: typo `0.9` → `0.09`.
+  - The typo had been in the command-line default only, since the first upload (2019-07-31, `8a21d04`).
+    The paper (Algorithm 1 and §IV: γ = 0.09), the help text and `IDEA.fit()` all use 0.09, and the paper
+    experiments were run with 0.09. **The published results are not affected.**
+  - Because of the typo, running the README example commands with `v1.0-paper` as-is marked almost every point
+    as an outlier (`-1`).
+  - No other code change. With default options the output equals `v1.0-paper` with `-outlierRatio 0.09` on all
+    20 bundled datasets.
+- The `v1.0-paper` tag is left unchanged (published tags are not moved); its release notes point to `v1.0.1`.
 
-## v1.0-paper — 논문 출판 버전 (커밋 `b4964c5`)
+## v1.0-paper — published version (commit `b4964c5`)
 
-IDEA (Ahn et al., IEEE BigData 2021, pp. 2791–2800, doi:10.1109/BigData52589.2021.9671953) 공개 구현.
+Public implementation of IDEA (Ahn et al., IEEE BigData 2021, pp. 2791–2800, doi:10.1109/BigData52589.2021.9671953).

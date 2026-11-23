@@ -4,8 +4,7 @@
 IDEA's default chunker is rMETIS (recursive METIS bisection + silhouette based
 shatter / reassignment, ``ChunkTree.chunking(chunkingMethod='metis')``).  This
 module adds community-detection and spectral partitioners that can be chosen
-with ``-chunkingMethod``.  Ported from paper_RLclustering/experiment_model/core/
-partition.py and adapted to IDEA's dict-of-dicts WNN graph.
+with ``-chunkingMethod``.  Adapted to IDEA's dict-of-dicts WNN graph.
 
   leiden_cpm  Leiden, Constant Potts Model; resolution searched so that the
               number of communities is close to nChunk          (needs igraph)
