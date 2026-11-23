@@ -1,6 +1,12 @@
 IDEA
 ====
 
+> **v1.0.1 (bug fix):** in `v1.0-paper` the command-line default of `-outlierRatio` was `0.9`
+> because of a typo present since the first upload. The paper, the help text and `IDEA.fit()`
+> all use **0.09**, and the paper experiments were run with 0.09. With the typo, the example
+> commands below label almost every point as an outlier (`-1`). Use `v1.0.1` (this version) to
+> reproduce the paper; with `v1.0-paper`, add `-outlierRatio 0.09`. No other change.
+
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data.
 
 <br>

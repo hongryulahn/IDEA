@@ -1566,7 +1566,7 @@ if __name__ == "__main__":
 	parser.add_argument('-nNeighbor', required=False, type=int, default=10, help='Alpha-nearest neighbor graph (default = 10)')
 	parser.add_argument('-nChunk', required=False, default='auto', help='the number of chunks (default = auto = 80+int(log_2 N))')
 	parser.add_argument('-nIteration', required=False, default='auto', help='the iteration of recursive optimization (default = auto = 2+int(sqrt(k))')
-	parser.add_argument('-outlierRatio', required=False, type=float, default=0.9, help='the outlier ratio (default = 0.09)')
+	parser.add_argument('-outlierRatio', required=False, type=float, default=0.09, help='the outlier ratio (default = 0.09)')
 	parser.add_argument('-GraphConversionMethod', required=False, default='WKNN', choices=['None','WKNN'], help='How to convert distance into graph (default = WKNN)')
 	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'average'], help='chunking method')
 	args=parser.parse_args()
