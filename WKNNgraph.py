@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import math
 import numpy as np
 
 def autoType(var):
@@ -22,6 +23,15 @@ def autoType(var):
 		return str(var)
 	except ValueError:
 		raise NameError('Something Messed Up Autocasting var %s (%s)'%(var, type(var)))
+
+_expCache = {}
+def _exp(x):
+	"""np.exp memoised: the argument is minus a sum of two neighbour ranks, so it
+	only takes a handful of distinct values. Returns exactly np.exp(x)."""
+	v = _expCache.get(x)
+	if v is None:
+		v = _expCache[x] = np.exp(x)
+	return v
 
 class WKNNgraph:
 	def __init__(self):
@@ -113,7 +123,7 @@ class WKNNgraph:
 			i1 = dic_node2node_i[n1].get(n2, (nNeighbor+nNode)*0.5)
 			i2 = dic_node2node_i[n2].get(n1, (nNeighbor+nNode)*0.5)
 			#new_val = l*float(nEdge-rank)/nEdge + (1.0-l)*0.5*(np.exp(-i1)+np.exp(-i2))
-			new_val = np.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*(np.exp(-i1-i2)))
+			new_val = math.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*_exp(-i1-i2))
 			self.dic_node2node_weight[n1][n2]=new_val
 			self.dic_node2node_weight[n2][n1]=new_val
 
@@ -209,7 +219,7 @@ class WKNNgraph:
 				i1 = dic_node2node_i[n1].get(n2, (nNeighbor+nNode)*0.5)
 				i2 = dic_node2node_i[n2].get(n1, (nNeighbor+nNode)*0.5)
 				#new_val = l*float(nEdge-rank)/nEdge + (1.0-l)*0.5*(np.exp(-i1)+np.exp(-i2))
-				new_val = np.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*(np.exp(-i1-i2)))
+				new_val = math.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*_exp(-i1-i2))
 				self.dic_node2node_weight[n1][n2]=new_val
 				self.dic_node2node_weight[n2][n1]=new_val
 		if weightType=='similarity':
@@ -217,7 +227,7 @@ class WKNNgraph:
 				i1 = dic_node2node_i[n1].get(n2, (nNeighbor+nNode)*0.5)
 				i2 = dic_node2node_i[n2].get(n1, (nNeighbor+nNode)*0.5)
 				#new_val = l*float(nEdge-rank)/nEdge + (1.0-l)*0.5*(np.exp(-i1)+np.exp(-i2))
-				new_val = np.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*(np.exp(-i1-i2)))
+				new_val = math.sqrt(l*(float(nEdge-rank)/nEdge)**2 + (1.0-l)*_exp(-i1-i2))
 				self.dic_node2node_weight[n1][n2]=new_val
 				self.dic_node2node_weight[n2][n1]=new_val
 

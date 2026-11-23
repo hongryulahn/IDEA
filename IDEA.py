@@ -1,12 +1,23 @@
 #!/usr/bin/env python
 import sys
+import os
 import argparse
 import numpy as np
 import itertools
 import time
 import random
 import heapq
+import operator
 from WKNNgraph import *
+
+# Optional compiled kernel for the chunk-level agents (falls back to pure Python).
+# Set IDEA_NO_NUMBA=1 to force the pure Python implementation.
+_kernel = None
+if os.environ.get('IDEA_NO_NUMBA', '0') in ('', '0'):
+	try:
+		import IDEA_kernel as _kernel
+	except ImportError:
+		_kernel = None
 
 def cutTree(linkageMatrix, t, outlierRatio=None, maxLeafID=None):
 	dic_parent2childs={}
@@ -125,6 +136,29 @@ def K(c1,c2):
 	else:
 		return (c2,c1)
 
+_second = operator.itemgetter(1)
+_EMPTY_I64 = np.zeros(0, dtype=np.int64)
+
+def _hasTie(lst):
+	"""True if a weight-sorted [pair, weight] list has equal (or NaN) neighbouring weights."""
+	prev = lst[0][1]
+	if prev != prev:
+		return True
+	for j in range(1, len(lst)):
+		w = lst[j][1]
+		if w == prev or w != w:
+			return True
+		prev = w
+	return False
+
+def _samePrefix(lm1, lm2, n):
+	"""True if the first n merges (c1, c2, new_cluster) of two linkage lists agree."""
+	for j in range(n):
+		a, b = lm1[j], lm2[j]
+		if a[0] != b[0] or a[1] != b[1] or a[2] != b[2]:
+			return False
+	return True
+
 def delete(dic, key):
 	if key in dic:
 		del dic[key]
@@ -156,6 +190,72 @@ def connectedComponent(wKNNgraph,set_node=None):
 		set_node -= set_visited
 	return lst_connectedComponent
 
+def _reassignShatteredNodes(set_shatteredNode, dic_node2cluster, dic_cluster2nodes, dic_node2node_weight):
+	"""Greedily give each shattered node (cluster -1) to its strongest neighbouring cluster.
+
+	Equivalent to the original loop
+		while lst: lst.sort(key=weightSum, reverse=True); node = lst.pop(0); ...
+	(same pick order, including ties), but uses a heap instead of re-sorting the
+	whole list after every pick.  The stable re-sort orders equal keys by their
+	previous list position; this is reproduced with a per-node stamp: a node whose
+	key increased moves behind every node that already has the new key, a node
+	whose key decreased moves in front of them.
+	"""
+	dic_node2key = {}
+	dic_node2c2w = {}
+	for node in set_shatteredNode:
+		dic_c2w = {}
+		for n2, weight in dic_node2node_weight[node].items():
+			c2 = dic_node2cluster[n2]
+			if c2 == -1:
+				continue
+			if c2 not in dic_c2w:
+				dic_c2w[c2] = 0.0
+			dic_c2w[c2] += weight
+		dic_node2key[node] = max(dic_c2w.values()) if len(dic_c2w) > 0 else 0.0
+		dic_node2c2w[node] = dic_c2w
+	lst_node = list(set_shatteredNode)
+	dic_node2stamp = dict((node, i) for i, node in enumerate(lst_node))
+	heap = [(-dic_node2key[node], i, node) for i, node in enumerate(lst_node)]
+	heapq.heapify(heap)
+	hiStamp, loStamp = len(lst_node), -1
+	nRemaining = len(lst_node)
+	heappop, heappush = heapq.heappop, heapq.heappush
+	while nRemaining > 0:
+		negkey, stamp, node = heappop(heap)
+		if dic_node2stamp[node] != stamp:
+			continue
+		dic_node2stamp[node] = None
+		nRemaining -= 1
+		c = sorted(dic_node2c2w[node].items(), key=lambda x:x[1], reverse=True)[0][0]
+		dic_cluster2nodes[c].add(node)
+		dic_node2cluster[node] = c
+		changed = []
+		for n2, weight in dic_node2node_weight[node].items():
+			if dic_node2cluster[n2] != -1:
+				continue
+			dic_c2w = dic_node2c2w[n2]
+			if c not in dic_c2w:
+				dic_c2w[c] = 0.0
+			dic_c2w[c] += weight
+			newKey = max(dic_c2w.values())
+			oldKey = dic_node2key[n2]
+			if newKey != oldKey:
+				changed.append((-oldKey, dic_node2stamp[n2], n2, newKey))
+				dic_node2key[n2] = newKey
+		if changed:
+			changed.sort()  # previous list order
+			for negOld, stamp, n2, newKey in changed:
+				if newKey > -negOld:
+					dic_node2stamp[n2] = hiStamp
+					hiStamp += 1
+					heappush(heap, (-newKey, dic_node2stamp[n2], n2))
+			for negOld, stamp, n2, newKey in reversed(changed):
+				if not newKey > -negOld:
+					dic_node2stamp[n2] = loStamp
+					loStamp -= 1
+					heappush(heap, (-newKey, dic_node2stamp[n2], n2))
+
 def partitionByMetis(lst_node, nPartition, wKNNgraph, isExact=False, recursive=True):
 	import pymetis
 	adjncy=[]
@@ -180,7 +280,10 @@ def partitionByMetis(lst_node, nPartition, wKNNgraph, isExact=False, recursive=T
 			adjwgt.append(intweight)
 			index+=1
 	xadj.append(len(adjncy))
-	cutcount, tmplst_cluster = pymetis.part_graph(nPartition, xadj=xadj, adjncy=adjncy, eweights=adjwgt, recursive=recursive)
+	if hasattr(pymetis, 'CSRAdjacency'):
+		cutcount, tmplst_cluster = pymetis.part_graph(nPartition, pymetis.CSRAdjacency(xadj, adjncy), eweights=adjwgt, recursive=recursive)
+	else:  # older pymetis
+		cutcount, tmplst_cluster = pymetis.part_graph(nPartition, xadj=xadj, adjncy=adjncy, eweights=adjwgt, recursive=recursive)
 	dic_cluster2nodes={}
 	for i, node in enumerate(lst_node):
 		cluster = tmplst_cluster[i]
@@ -220,6 +323,11 @@ class hierarchicalClusteringAgent:
 		self.nNode = sum([self.dic_cluster2nNode.get(cluster,1.0) for cluster in self.set_cluster])
 		self.costFunction = lambda weightSum, nNode: weightSum*nNode*nNode
 		self.nTotalNode = nTotalNode
+		self.cachePrefix = False
+		self.useKernel = False
+		self._kernelData = None
+		self._lm = None
+		self._lmRaw = None
 		self.dic_cluster2cost = {}
 		for cluster in self.set_cluster:
 			self.dic_cluster2cost[cluster] = self.costFunction(self.dic_cluster2sumWeight.get(cluster,0.0),self.dic_cluster2nNode.get(cluster,1.0))
@@ -450,218 +558,409 @@ class hierarchicalClusteringAgent:
 				self.sorted_edge.append([(c1,c2),weight])
 			self.sorted_edge.sort(key=lambda x:x[1])
 
-	def fit(self, linkageMatrix=[], set_forbiddenPair=set(), returnCandidate=False):
-		nTotalNode=self.nTotalNode
-		set_cluster=set(self.set_cluster)
-		linkageMethod=self.linkageMethod
-		dic_cluster2nNode = dict(self.dic_cluster2nNode)
-		dic_cluster2cost = dict(self.dic_cluster2cost)
-		dic_cluster2sumWeight = dict(self.dic_cluster2sumWeight)
-		dic_edge2sumWeight = dict(self.dic_edge2sumWeight)
-		if linkageMethod == 'single':
-			dic_edge2maxWeight = dict(self.dic_edge2maxWeight)
-		elif linkageMethod == 'complete':
-			dic_edge2minWeight = dict(self.dic_edge2minWeight)
-		elif linkageMethod == 'weighted':
-			dic_edge2weightedWeight = dict(self.dic_edge2weightedWeight)
-		elif linkageMethod == 'average':
-			pass
-		elif linkageMethod == 'deltaCost':
-			dic_cluster2edgeSumWeight = dict(self.dic_cluster2edgeSumWeight)
-		elif linkageMethod == 'deltaRev':
-			pass
-		elif linkageMethod == 'deltaModularity':
-			dic_cluster2modularitySumWeight = dict(self.dic_cluster2modularitySumWeight)
-			totalEdgeSumWeight = self.totalEdgeSumWeight
-		elif linkageMethod == 'edgeCountNormalized':
-			dic_edge2countWeight = dict(self.dic_edge2countWeight)
-		elif linkageMethod == 'minEdgeCountNormalized':
-			dic_edge2countWeight = dict(self.dic_edge2countWeight)
-			dic_cluster2edgeSumCount = dict(self.dic_cluster2edgeSumCount)
-		elif linkageMethod == 'maxEdgeCountNormalized':
-			dic_edge2countWeight = dict(self.dic_edge2countWeight)
-			dic_cluster2edgeSumCount = dict(self.dic_cluster2edgeSumCount)
-		elif linkageMethod == 'unionEdgeCountNormalized':
-			dic_edge2countWeight = dict(self.dic_edge2countWeight)
-			dic_cluster2edgeSumCount = dict(self.dic_cluster2edgeSumCount)
-		elif linkageMethod == 'minEdgeWeightNormalized':
-			dic_cluster2edgeSumWeight = dict(self.dic_cluster2edgeSumWeight)
-		elif linkageMethod == 'maxEdgeWeightNormalized':
-			dic_cluster2edgeSumWeight = dict(self.dic_cluster2edgeSumWeight)
-		elif linkageMethod == 'unionEdgeWeightNormalized':
-			dic_cluster2edgeSumWeight = dict(self.dic_cluster2edgeSumWeight)
-		elif linkageMethod == 'minModularityWeightNormalized':
-			dic_cluster2modularitySumWeight = dict(self.dic_cluster2modularitySumWeight)
-		elif linkageMethod == 'maxModularityWeightNormalized':
-			dic_cluster2modularitySumWeight = dict(self.dic_cluster2modularitySumWeight)
-		elif linkageMethod == 'avgModularityWeightNormalized':
-			dic_cluster2modularitySumWeight = dict(self.dic_cluster2modularitySumWeight)
+	def _initState(self):
+		# Adjacency (cluster -> set of clusters sharing an edge) derived from the
+		# edge dictionary. Lets each merge visit only the neighbours of the merged
+		# pair instead of every live cluster.
+		nbrs = {}
+		for (a, b) in self.dic_edge2sumWeight:
+			if a in nbrs:
+				nbrs[a].add(b)
+			else:
+				nbrs[a] = {b}
+			if b in nbrs:
+				nbrs[b].add(a)
+			else:
+				nbrs[b] = {a}
+		self.dic_cluster2nbrs = nbrs
 
-		max_i=0
-		lst_target=[]
-		dic_i2list={}
-		if len(self.sorted_edge) > 0:
-			dic_i2list[max_i]=list(self.sorted_edge)
-			heapq.heappush(lst_target,(-dic_i2list[max_i][-1][1],max_i))
-			max_i=max(dic_i2list.keys())+1
+	# linkageMatrix is materialised lazily when it comes from the compiled kernel
+	@property
+	def linkageMatrix(self):
+		if self._lm is None and self._lmRaw is not None:
+			merges, nn, st, k = self._lmRaw
+			merges = self._kernelIDs(merges[:k])
+			nn = nn[:k].astype(np.float64) if self._kernelData[-1] else nn[:k]
+			lm = []
+			for (c1, c2, c), (n1, n2), (s1, s2, s12, sw, cost) in zip(merges.tolist(), nn.tolist(), st[:k].tolist()):
+				dic_key2value = {'nNode1':n1, 'nNode2':n2, 'nNode':n1+n2, 'sumWeight1':s1, 'sumWeight2':s2, 'sumWeight12':s12, 'sumWeight':sw, 'cost':cost}
+				dic_key2value['separationGain'] = computeSeparationGain(dic_key2value)
+				lm.append([c1, c2, c, dic_key2value])
+			self._lm = lm
+			self._lmRaw = None
+		return self._lm
 
-		self.linkageMatrix=[]
+	@linkageMatrix.setter
+	def linkageMatrix(self, value):
+		self._lm = value
+		self._lmRaw = None
 
-		for i, x in enumerate(linkageMatrix):
-			c1,c2,new_cluster = x[0],x[1],x[2]
-			nNode1, nNode2 = dic_cluster2nNode.get(c1,1.0), dic_cluster2nNode.get(c2,1.0)
+	def finalCost(self):
+		"""cost of the root of the last fitted tree (== linkageMatrix[-1][3]['cost'])"""
+		if self._lm is None and self._lmRaw is not None:
+			merges, nn, st, k = self._lmRaw
+			return float(st[k-1, 4])
+		return self._lm[-1][3]['cost']
+
+	def mergePairs(self, start=0):
+		"""[(c1, c2), ...] of the last fitted tree from merge `start` on"""
+		if self._lm is None and self._lmRaw is not None:
+			merges, nn, st, k = self._lmRaw
+			return [(c1, c2) for c1, c2 in self._kernelIDs(merges[start:k, :2]).tolist()]
+		return [(x[0], x[1]) for x in self._lm[start:]]
+
+	def _prepareKernel(self):
+		"""Pack the initial state into arrays for IDEA_kernel; None if not applicable."""
+		if _kernel is None or self.linkageMethod not in _kernel.METHOD_CODES:
+			return None
+		method = _kernel.METHOD_CODES[self.linkageMethod]
+		n0 = len(self.set_cluster)
+		if n0 < 2 or n0 > _kernel.MAX_CLUSTERS or not isinstance(self.nTotalNode, (int, np.integer)):
+			return None
+		if any(not isinstance(c, (int, np.integer)) or isinstance(c, bool) for c in self.set_cluster):
+			return None
+		# kernel ids are 0..n0-1 (ascending original id); merged clusters keep the
+		# original numbering max(id)+1, max(id)+2, ... via _kernelIDs
+		lst_id = sorted(self.set_cluster)
+		relabel = lst_id != list(range(n0))
+		dic_id2k = dict((c, i) for i, c in enumerate(lst_id))
+		# cluster sizes: all ints, or all integral floats (the 1.0 default of the node-level agents)
+		raw = [self.dic_cluster2nNode.get(c, 1.0) for c in lst_id]
+		if all(isinstance(v, (int, np.integer)) and not isinstance(v, bool) for v in raw):
+			nNodeFloat = False
+		elif all(isinstance(v, float) and v.is_integer() and 0 < v < 2**52 for v in raw):
+			nNodeFloat = True
+		else:
+			return None
+		nNode0 = [int(v) for v in raw]
+		if any(not isinstance(v, (float, int)) for v in self.dic_cluster2sumWeight.values()):
+			return None
+		sumW0 = [self.dic_cluster2sumWeight.get(c, 0.0) for c in lst_id]
+		cost0 = [self.dic_cluster2cost[c] for c in lst_id]
+		totalW = 1.0
+		if method in (5, 10):
+			cstat0 = [self.dic_cluster2modularitySumWeight.get(c, 0.0) for c in lst_id]
+			if method == 5:
+				totalW = self.totalEdgeSumWeight
+		elif method == 8:
+			cstat0 = [self.dic_cluster2edgeSumCount.get(c, 0.0) for c in lst_id]
+		elif method == 9:
+			cstat0 = [self.dic_cluster2edgeSumWeight.get(c, 0.0) for c in lst_id]
+		else:
+			cstat0 = [0.0]*n0
+		auxDict = {1: getattr(self, 'dic_edge2weightedWeight', None), 2: getattr(self, 'dic_edge2maxWeight', None),
+			3: getattr(self, 'dic_edge2minWeight', None), 8: getattr(self, 'dic_edge2countWeight', None)}.get(method)
+		ea, eb, es, ex = [], [], [], []
+		for (a, b), w in self.dic_edge2sumWeight.items():
+			if not (a < b and a in dic_id2k and b in dic_id2k):
+				return None
+			ea.append(dic_id2k[a]); eb.append(dic_id2k[b]); es.append(w)
+			if auxDict is not None:
+				if (a, b) not in auxDict:
+					return None
+				ex.append(auxDict[(a, b)])
+			else:
+				ex.append(0.0)
+		if auxDict is not None and len(auxDict) != len(self.dic_edge2sumWeight):
+			return None
+		ia, ib, iw = [], [], []
+		for (a, b), w in self.sorted_edge:
+			ia.append(dic_id2k[a]); ib.append(dic_id2k[b]); iw.append(w)
+		i64, f64 = np.int64, np.float64
+		if relabel:
+			# kernel id -> original id (initial clusters), merged ids continue after max(original id)
+			idMap = np.concatenate([np.array(lst_id, i64), np.arange(lst_id[-1]+1, lst_id[-1]+n0, dtype=i64)])
+		else:
+			idMap = None
+		return (method, n0, int(self.nTotalNode), np.array(nNode0, i64), np.array(sumW0, f64), np.array(cost0, f64),
+			np.array(cstat0, f64), float(totalW), np.array(ea, i64), np.array(eb, i64), np.array(es, f64), np.array(ex, f64),
+			np.array(ia, i64), np.array(ib, i64), np.array(iw, f64), idMap, nNodeFloat)
+
+	def _kernelIDs(self, arr):
+		idMap = self._kernelData[15]
+		return arr if idMap is None else idMap[arr]
+
+	def fit(self, linkageMatrix=(), set_forbiddenPair=frozenset(), returnCandidate=False, prefixArray=None):
+		"""Fit the agent; uses the compiled kernel when enabled and applicable."""
+		if self.useKernel and not returnCandidate:
+			if self._kernelData is None:
+				self._kernelData = self._prepareKernel() or False
+			if self._kernelData and (self._kernelData[15] is None or (len(linkageMatrix) == 0 and not set_forbiddenPair)):
+				if prefixArray is None:
+					prefixArray = np.array([[x[0], x[1], x[2]] for x in linkageMatrix], dtype=np.int64).reshape(-1, 3)
+				if set_forbiddenPair:
+					fp = np.array(list(set_forbiddenPair), dtype=np.int64).reshape(-1, 2)
+					fa, fb = fp[:, 0].copy(), fp[:, 1].copy()
+				else:
+					fa = fb = _EMPTY_I64
+				status, k, merges, nn, st = _kernel.agglomerate(*self._kernelData[:15], prefixArray, fa, fb)
+				if status == 0:
+					self._lm = None
+					self._lmRaw = (merges, nn, st, k)
+					return
+				# order-sensitive corner case: let the exact Python implementation decide
+		return self._fitPython(linkageMatrix, set_forbiddenPair, returnCandidate)
+
+	def _fitPython(self, linkageMatrix=(), set_forbiddenPair=frozenset(), returnCandidate=False):
+		"""Greedy agglomeration, optionally replaying a fixed merge prefix first.
+
+		Semantics (merge order, tie breaking, floating point arithmetic) are
+		identical to the original implementation; only the bookkeeping is faster:
+		  * neighbours of the merged pair are found via an adjacency map instead
+		    of scanning all live clusters, but are visited in the same order the
+		    original scan would visit them (the order of ``set_cluster``);
+		  * per-method weight updates are bound once per call (no string chain);
+		  * the replayed prefix state is cached and reused when the next call
+		    extends the same prefix (see ``chunkEnsembleClustering``).
+		"""
+		if not hasattr(self, 'dic_cluster2nbrs'):
+			self._initState()
+		nTotalNode = self.nTotalNode
+		linkageMethod = self.linkageMethod
+		costFunction = self.costFunction
+		inf = np.inf
+
+		# ---- restore state: from cache (longest matching replayed prefix) or from scratch
+		nPrefix = len(linkageMatrix)
+		cache = getattr(self, '_prefixCache', None)
+		if cache is not None and cache['n'] <= nPrefix and _samePrefix(cache['lm'], linkageMatrix, cache['n']):
+			st = cache
+			start = cache['n']
+			set_cluster = set(st['set_cluster'])
+			lm = list(st['lm'])
+		else:
+			st = None
+			start = 0
+			set_cluster = set(self.set_cluster)
+			lm = []
+		src = st if st is not None else self.__dict__
+		dic_cluster2nNode = dict(src['dic_cluster2nNode'])
+		dic_cluster2cost = dict(src['dic_cluster2cost'])
+		dic_cluster2sumWeight = dict(src['dic_cluster2sumWeight'])
+		dic_edge2sumWeight = dict(src['dic_edge2sumWeight'])
+		nbrs = dict((c, set(s)) for c, s in src['dic_cluster2nbrs'].items())
+		ext = {}
+		for name in ('dic_edge2maxWeight', 'dic_edge2minWeight', 'dic_edge2weightedWeight', 'dic_edge2countWeight', 'dic_cluster2edgeSumWeight', 'dic_cluster2edgeSumCount', 'dic_cluster2modularitySumWeight'):
+			if name in src:
+				ext[name] = dict(src[name])
+		totalEdgeSumWeight = getattr(self, 'totalEdgeSumWeight', None)
+		dic_edge2maxWeight = ext.get('dic_edge2maxWeight')
+		dic_edge2minWeight = ext.get('dic_edge2minWeight')
+		dic_edge2weightedWeight = ext.get('dic_edge2weightedWeight')
+		dic_edge2countWeight = ext.get('dic_edge2countWeight')
+		dic_cluster2edgeSumWeight = ext.get('dic_cluster2edgeSumWeight')
+		dic_cluster2edgeSumCount = ext.get('dic_cluster2edgeSumCount')
+		dic_cluster2modularitySumWeight = ext.get('dic_cluster2modularitySumWeight')
+
+		if st is not None:
+			dic_i2list = dict((i, list(l)) for i, l in st['dic_i2list'].items())
+			lst_target = list(st['lst_target'])
+			max_i = st['max_i']
+		else:
+			max_i = 0
+			lst_target = []
+			dic_i2list = {}
+			if len(self.sorted_edge) > 0:
+				dic_i2list[max_i] = list(self.sorted_edge)
+				heapq.heappush(lst_target, (-dic_i2list[max_i][-1][1], max_i))
+				max_i = max(dic_i2list.keys())+1
+
+		nN = dic_cluster2nNode.get
+
+		# ---- per-method pieces
+		# clusterUpdate(c1, c2, new_cluster, e12, replay): cluster-level statistics of the merged cluster
+		# edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay): linkage value of a new edge
+		lm_ = linkageMethod
+		if lm_ in ('deltaModularity', 'minModularityWeightNormalized', 'maxModularityWeightNormalized', 'avgModularityWeightNormalized'):
+			msw = dic_cluster2modularitySumWeight
+			def clusterUpdate(c1, c2, new_cluster, e12, replay):
+				msw[new_cluster] = msw.get(c1, 0.0)+msw.get(c2, 0.0)
+		elif lm_ in ('minEdgeCountNormalized', 'maxEdgeCountNormalized', 'unionEdgeCountNormalized'):
+			ecs, ecw = dic_cluster2edgeSumCount, dic_edge2countWeight
+			def clusterUpdate(c1, c2, new_cluster, e12, replay):
+				ecs[new_cluster] = ecs.get(c1, 0.0) + ecs.get(c2, 0.0) - ecw.get(e12, 0.0)
+		elif lm_ in ('minEdgeWeightNormalized', 'maxEdgeWeightNormalized', 'unionEdgeWeightNormalized'):
+			cesw = dic_cluster2edgeSumWeight
+			def clusterUpdate(c1, c2, new_cluster, e12, replay):
+				cesw[new_cluster] = cesw.get(c1, 0.0) + cesw.get(c2, 0.0) - dic_edge2sumWeight.get(e12, 0.0)
+		elif lm_ == 'deltaCost':
+			cesw = dic_cluster2edgeSumWeight
+			def clusterUpdate(c1, c2, new_cluster, e12, replay):
+				# the original only updates this during prefix replay
+				if replay:
+					cesw[new_cluster] = cesw.get(c1, 0.0)+cesw.get(c2, 0.0) - dic_edge2sumWeight.get(e12, 0.0)
+		else:
+			clusterUpdate = None
+
+		if lm_ == 'single':
+			d = dic_edge2maxWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				weight = max(d.pop(e1, 0.0), d.pop(e2, 0.0))
+				d[new_e] = weight
+				return weight
+		elif lm_ == 'complete':
+			d = dic_edge2minWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				weight = min(d.pop(e1, inf), d.pop(e2, inf))
+				d[new_e] = weight
+				return weight
+		elif lm_ == 'weighted':
+			d = dic_edge2weightedWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				weight = 0.5*(d.pop(e1, 0.0)+d.pop(e2, 0.0))
+				d[new_e] = weight
+				return weight
+		elif lm_ == 'average':
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / float(nN(new_cluster, 1.0)*nN(cluster, 1.0))
+		elif lm_ == 'deltaCost':
+			cesw = dic_cluster2edgeSumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				# the original uses different per-cluster sums in replay vs greedy phase
+				dd = cesw if replay else dic_cluster2sumWeight
+				return 1.0 / (dd.get(new_cluster, 0.0) * nN(cluster, 1.0) + dd.get(cluster, 0.0) * nN(new_cluster, 1.0) - sumWeight * float(nN(new_cluster, 1.0)*nN(cluster, 1.0)))
+		elif lm_ == 'deltaRev':
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				weight = sumWeight / float(nN(new_cluster, 1.0)*nN(cluster, 1.0))
+				weight *= nTotalNode-nN(new_cluster, 1.0)-nN(cluster, 1.0)
+				return weight
+		elif lm_ == 'deltaModularity':
+			msw = dic_cluster2modularitySumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight - msw.get(new_cluster, 0.0)*msw.get(cluster, 0.0)/totalEdgeSumWeight
+		elif lm_ in ('edgeCountNormalized', 'minEdgeCountNormalized', 'maxEdgeCountNormalized', 'unionEdgeCountNormalized'):
+			ecw = dic_edge2countWeight
+			ecs = dic_cluster2edgeSumCount
+			if lm_ == 'edgeCountNormalized':
+				def norm(new_cluster, cluster, countWeight):
+					return countWeight
+			elif lm_ == 'minEdgeCountNormalized':
+				def norm(new_cluster, cluster, countWeight):
+					return min(ecs.get(new_cluster, 0.0), ecs.get(cluster, 0.0))
+			elif lm_ == 'maxEdgeCountNormalized':
+				def norm(new_cluster, cluster, countWeight):
+					return max(ecs.get(new_cluster, 0.0), ecs.get(cluster, 0.0))
+			else:
+				def norm(new_cluster, cluster, countWeight):
+					return ecs.get(new_cluster, 0.0)+ecs.get(cluster, 0.0)-countWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				countWeight = ecw.pop(e1, 0.0)+ecw.pop(e2, 0.0)
+				ecw[new_e] = countWeight
+				return sumWeight / norm(new_cluster, cluster, countWeight)
+		elif lm_ == 'minEdgeWeightNormalized':
+			cesw = dic_cluster2edgeSumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / min(cesw.get(new_cluster, 0.0), cesw.get(cluster, 0.0))
+		elif lm_ == 'maxEdgeWeightNormalized':
+			cesw = dic_cluster2edgeSumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / max(cesw.get(new_cluster, 0.0), cesw.get(cluster, 0.0))
+		elif lm_ == 'unionEdgeWeightNormalized':
+			cesw = dic_cluster2edgeSumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / (cesw.get(new_cluster, 0.0)+cesw.get(cluster, 0.0)-sumWeight)
+		elif lm_ == 'minModularityWeightNormalized':
+			msw = dic_cluster2modularitySumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / min(msw.get(new_cluster, 0.0), msw.get(cluster, 0.0))
+		elif lm_ == 'maxModularityWeightNormalized':
+			msw = dic_cluster2modularitySumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / max(msw.get(new_cluster, 0.0), msw.get(cluster, 0.0))
+		elif lm_ == 'avgModularityWeightNormalized':
+			msw = dic_cluster2modularitySumWeight
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / (0.5*(msw.get(new_cluster, 0.0)+msw.get(cluster, 0.0)))
+		elif lm_ == 'minPossibleEdgeCountNormalized':
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				minNNode = min(nN(new_cluster, 1.0), nN(cluster, 1.0))
+				return sumWeight / (minNNode*(nTotalNode-minNNode))
+		elif lm_ == 'minNodeNormalized':
+			def edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay):
+				return sumWeight / min(nN(new_cluster, 1.0), nN(cluster, 1.0))
+		else:
+			raise ValueError('unknown linkageMethod %s' % linkageMethod)
+
+		esw = dic_edge2sumWeight
+		esw_pop = esw.pop
+		empty = frozenset()
+
+		def merge(c1, c2, new_cluster, replay):
+			nonlocal max_i
+			nNode1, nNode2 = nN(c1, 1.0), nN(c2, 1.0)
 			nNode = nNode1+nNode2
-			sumWeight1, sumWeight2 = dic_cluster2sumWeight.get(c1,0.0), dic_cluster2sumWeight.get(c2,0.0)
-			sumWeight12 = dic_edge2sumWeight.get(K(c1,c2),0.0)
+			sumWeight1, sumWeight2 = dic_cluster2sumWeight.get(c1, 0.0), dic_cluster2sumWeight.get(c2, 0.0)
+			e12 = (c1, c2) if c1 < c2 else (c2, c1)
+			sumWeight12 = esw.get(e12, 0.0)
 			sumWeight = sumWeight1+sumWeight2+sumWeight12
-			cost1, cost2 = dic_cluster2cost.get(c1,0.0), dic_cluster2cost.get(c2,0.0)
-			cost12 = self.costFunction(dic_edge2sumWeight.get(K(c1,c2),0.0),nNode)
-			cost = cost1+cost2+cost12
+			cost1, cost2 = dic_cluster2cost.get(c1, 0.0), dic_cluster2cost.get(c2, 0.0)
+			cost = cost1+cost2+costFunction(sumWeight12, nNode)
 			dic_cluster2nNode[new_cluster] = nNode
 			dic_cluster2sumWeight[new_cluster] = sumWeight
 			dic_cluster2cost[new_cluster] = cost
-			dic_key2value={'nNode1':nNode1,'nNode2':nNode2,'nNode':nNode,'sumWeight1':sumWeight1,'sumWeight2':sumWeight2,'sumWeight12':sumWeight12,'sumWeight':sumWeight,'cost':cost}
-			separationGain=computeSeparationGain(dic_key2value)
-			dic_key2value['separationGain']=separationGain
-			self.linkageMatrix.append([c1,c2,new_cluster,dic_key2value])
-			if linkageMethod == 'deltaCost':
-				dic_cluster2edgeSumWeight[new_cluster]=dic_cluster2edgeSumWeight.get(c1,0.0)+dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'deltaModularity':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'minEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'maxEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'unionEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'minEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'maxEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'unionEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'minModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'maxModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'avgModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
+			dic_key2value = {'nNode1':nNode1, 'nNode2':nNode2, 'nNode':nNode, 'sumWeight1':sumWeight1, 'sumWeight2':sumWeight2, 'sumWeight12':sumWeight12, 'sumWeight':sumWeight, 'cost':cost}
+			dic_key2value['separationGain'] = computeSeparationGain(dic_key2value)
+			lm.append([c1, c2, new_cluster, dic_key2value])
+			if clusterUpdate is not None:
+				clusterUpdate(c1, c2, new_cluster, e12, replay)
 
 			set_cluster.remove(c1)
 			set_cluster.remove(c2)
-			lst_clusterPair2weight2=[]
-			for cluster in set_cluster:
-				e1, e2 =  K(c1,cluster), K(c2,cluster)
-				if e1 not in dic_edge2sumWeight and e2 not in dic_edge2sumWeight:
-					continue
-				new_e = K(new_cluster,cluster)
-				sumWeight = dic_edge2sumWeight.get(e1,0.0) + dic_edge2sumWeight.get(e2,0.0)
-				if e1 in dic_edge2sumWeight:
-					del dic_edge2sumWeight[e1]
-				if e2 in dic_edge2sumWeight:
-					del dic_edge2sumWeight[e2]
-				dic_edge2sumWeight[new_e]=sumWeight
-				if linkageMethod == 'single':
-					weight = max(dic_edge2maxWeight.get(e1,0.0),dic_edge2maxWeight.get(e2,0.0))
-					if e1 in dic_edge2maxWeight:
-						del dic_edge2maxWeight[e1]
-					if e2 in dic_edge2maxWeight:
-						del dic_edge2maxWeight[e2]
-					dic_edge2maxWeight[new_e]=weight
-				elif linkageMethod == 'complete':
-					weight = min(dic_edge2minWeight.get(e1,np.inf),dic_edge2minWeight.get(e2,np.inf))
-					if e1 in dic_edge2minWeight:
-						del dic_edge2minWeight[e1]
-					if e2 in dic_edge2minWeight:
-						del dic_edge2minWeight[e2]
-					dic_edge2minWeight[new_e]=weight
-				elif linkageMethod == 'weighted':
-					weight = 0.5*(dic_edge2weightedWeight.get(e1,0.0)+dic_edge2weightedWeight.get(e2,0.0))
-					if e1 in dic_edge2weightedWeight:
-						del dic_edge2weightedWeight[e1]
-					if e2 in dic_edge2weightedWeight:
-						del dic_edge2weightedWeight[e2]
-					dic_edge2weightedWeight[new_e]=weight
-				elif linkageMethod == 'average':
-					weight = sumWeight
-					weight /= float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0))
-				elif linkageMethod == 'deltaCost':
-					weight = 1.0 / (dic_cluster2edgeSumWeight.get(new_cluster,0.0) * dic_cluster2nNode.get(cluster,1.0) + dic_cluster2edgeSumWeight.get(cluster,0.0) * dic_cluster2nNode.get(new_cluster,1.0) - sumWeight * float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0)))
-				elif linkageMethod == 'deltaRev':
-					weight = sumWeight
-					weight /= float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0))
-					weight *= nTotalNode-dic_cluster2nNode.get(new_cluster,1.0)-dic_cluster2nNode.get(cluster,1.0)
-				elif linkageMethod == 'deltaModularity':
-					weight = sumWeight
-					weight -= dic_cluster2modularitySumWeight.get(new_cluster,0.0)*dic_cluster2modularitySumWeight.get(cluster,0.0)/totalEdgeSumWeight
-				elif linkageMethod == 'edgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight/countWeight
-				elif linkageMethod == 'minEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= min(dic_cluster2edgeSumCount.get(new_cluster,0.0),dic_cluster2edgeSumCount.get(cluster,0.0))
-				elif linkageMethod == 'maxEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= max(dic_cluster2edgeSumCount.get(new_cluster,0.0),dic_cluster2edgeSumCount.get(cluster,0.0))
-				elif linkageMethod == 'unionEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= dic_cluster2edgeSumCount.get(new_cluster,0.0)+dic_cluster2edgeSumCount.get(cluster,0.0)-countWeight
-				elif linkageMethod == 'minEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= min(dic_cluster2edgeSumWeight.get(new_cluster,0.0),dic_cluster2edgeSumWeight.get(cluster,0.0))
-				elif linkageMethod == 'maxEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= max(dic_cluster2edgeSumWeight.get(new_cluster,0.0),dic_cluster2edgeSumWeight.get(cluster,0.0))
-				elif linkageMethod == 'unionEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= dic_cluster2edgeSumWeight.get(new_cluster,0.0)+dic_cluster2edgeSumWeight.get(cluster,0.0)-sumWeight
-				elif linkageMethod == 'minModularityWeightNormalized':
-					weight = sumWeight
-					weight /= min(dic_cluster2modularitySumWeight.get(new_cluster,0.0),dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'maxModularityWeightNormalized':
-					weight = sumWeight
-					weight /= max(dic_cluster2modularitySumWeight.get(new_cluster,0.0),dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'avgModularityWeightNormalized':
-					weight = sumWeight
-					weight /= 0.5*(dic_cluster2modularitySumWeight.get(new_cluster,0.0)+dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'minPossibleEdgeCountNormalized':
-					minNNode=min(dic_cluster2nNode.get(new_cluster,1.0),dic_cluster2nNode.get(cluster,1.0))
-					weight = sumWeight
-					weight /= minNNode*(nTotalNode-minNNode)
-				elif linkageMethod == 'minNodeNormalized':
-					minNNode=min(dic_cluster2nNode.get(new_cluster,1.0),dic_cluster2nNode.get(cluster,1.0))
-					weight = sumWeight
-					weight /= minNNode
-				lst_clusterPair2weight2.append([K(new_cluster, cluster), weight])
-			if len(lst_clusterPair2weight2) > 0:
-				lst_clusterPair2weight2.sort(key=lambda x: x[1])
-				dic_i2list[max_i]=lst_clusterPair2weight2
-				heapq.heappush(lst_target,(-dic_i2list[max_i][-1][1],max_i))
-				max_i+=1
+			cand = set(nbrs.pop(c1, empty))
+			cand |= nbrs.pop(c2, empty)
+			cand.intersection_update(set_cluster)
+			nbrs[new_cluster] = cand
+			if cand:
+				lst_clusterPair2weight2 = []
+				append = lst_clusterPair2weight2.append
+				for cluster in cand:
+					if cluster < c1:
+						e1 = (cluster, c1)
+					else:
+						e1 = (c1, cluster)
+					if cluster < c2:
+						e2 = (cluster, c2)
+					else:
+						e2 = (c2, cluster)
+					new_e = (new_cluster, cluster) if new_cluster < cluster else (cluster, new_cluster)
+					sumWeight = esw_pop(e1, 0.0) + esw_pop(e2, 0.0)
+					esw[new_e] = sumWeight
+					nb = nbrs[cluster]
+					nb.discard(c1)
+					nb.discard(c2)
+					nb.add(new_cluster)
+					append([new_e, edgeWeight(new_cluster, cluster, sumWeight, e1, e2, new_e, replay)])
+				lst_clusterPair2weight2.sort(key=_second)
+				if len(lst_clusterPair2weight2) > 1 and _hasTie(lst_clusterPair2weight2):
+					# Equal weights: the original's stable sort ordered them by the
+					# iteration order of set_cluster, so reproduce that exactly.
+					rank = dict((c, j) for j, c in enumerate([c for c in set_cluster if c in cand]))
+					other = lambda e: e[0] if e[1] == new_cluster else e[1]
+					lst_clusterPair2weight2.sort(key=lambda x: rank[other(x[0])])
+					lst_clusterPair2weight2.sort(key=_second)
+				dic_i2list[max_i] = lst_clusterPair2weight2
+				heapq.heappush(lst_target, (-lst_clusterPair2weight2[-1][1], max_i))
+				max_i += 1
 			set_cluster.add(new_cluster)
+
+		# ---- replay the fixed prefix
+		for j in range(start, nPrefix):
+			x = linkageMatrix[j]
+			merge(x[0], x[1], x[2], True)
+
+		if nPrefix > 0 and self.cachePrefix:
+			self._prefixCache = {
+				'n': nPrefix, 'lm': list(lm), 'set_cluster': set(set_cluster),
+				'dic_cluster2nNode': dict(dic_cluster2nNode), 'dic_cluster2cost': dict(dic_cluster2cost),
+				'dic_cluster2sumWeight': dict(dic_cluster2sumWeight), 'dic_edge2sumWeight': dict(dic_edge2sumWeight),
+				'dic_cluster2nbrs': dict((c, set(s)) for c, s in nbrs.items()),
+				'dic_i2list': dict((i, list(l)) for i, l in dic_i2list.items()),
+				'lst_target': list(lst_target), 'max_i': max_i,
+			}
+			for name, dd in ext.items():
+				self._prefixCache[name] = dict(dd)
+
+		self.linkageMatrix = lm
 
 		if returnCandidate:
 			lst_candidate=[]
@@ -673,183 +972,35 @@ class hierarchicalClusteringAgent:
 		if len(set_cluster) <= 1:
 			return
 		new_cluster = max(set_cluster) + 1
+		heappop, heappush = heapq.heappop, heapq.heappush
 		while True:
 			if len(lst_target) != 0:
-				negweight, i = heapq.heappop(lst_target)
-				(c1, c2), weight = dic_i2list[i].pop()
+				negweight, i = heappop(lst_target)
+				lst_i = dic_i2list[i]
+				(c1, c2), weight = lst_i.pop()
 				if c1 not in set_cluster or c2 not in set_cluster:
 					while True:
-						if len(dic_i2list[i]) == 0:
+						if len(lst_i) == 0:
 							break
-						(c1, c2), weight = dic_i2list[i].pop()
+						(c1, c2), weight = lst_i.pop()
 						if c1 in set_cluster and c2 in set_cluster:
-							dic_i2list[i].append([(c1,c2), weight])
+							lst_i.append([(c1,c2), weight])
 							break
-					if len(dic_i2list[i]) == 0:
+					if len(lst_i) == 0:
 						del dic_i2list[i]
 					else:
-						heapq.heappush(lst_target,(-dic_i2list[i][-1][1],i))
+						heappush(lst_target,(-lst_i[-1][1],i))
 					continue
-				if len(dic_i2list[i]) == 0:
+				if len(lst_i) == 0:
 					del dic_i2list[i]
 				else:
-					heapq.heappush(lst_target,(-dic_i2list[i][-1][1],i))
-				if K(c1, c2) in set_forbiddenPair:
+					heappush(lst_target,(-lst_i[-1][1],i))
+				if set_forbiddenPair and K(c1, c2) in set_forbiddenPair:
 					continue
 			else:
 				(c1, c2), weight = sorted(set_cluster, key=lambda x:dic_cluster2nNode.get(x,1.0))[0:2], 0.0
 
-			nNode1, nNode2 = dic_cluster2nNode.get(c1,1.0), dic_cluster2nNode.get(c2,1.0)
-			nNode = nNode1+nNode2
-			sumWeight1, sumWeight2 = dic_cluster2sumWeight.get(c1,0.0), dic_cluster2sumWeight.get(c2,0.0)
-			sumWeight12 = dic_edge2sumWeight.get(K(c1,c2),0.0)
-			sumWeight = sumWeight1+sumWeight2+sumWeight12
-			cost1, cost2 = dic_cluster2cost.get(c1,0.0), dic_cluster2cost.get(c2,0.0)
-			cost12 = self.costFunction(dic_edge2sumWeight.get(K(c1,c2),0.0),nNode)
-			cost = cost1+cost2+cost12
-			dic_cluster2nNode[new_cluster] = nNode
-			dic_cluster2sumWeight[new_cluster] = sumWeight
-			dic_cluster2cost[new_cluster] = cost
-			dic_key2value={'nNode1':nNode1,'nNode2':nNode2,'nNode':nNode,'sumWeight1':sumWeight1,'sumWeight2':sumWeight2,'sumWeight12':sumWeight12,'sumWeight':sumWeight,'cost':cost}
-			separationGain=computeSeparationGain(dic_key2value)
-			dic_key2value['separationGain']=separationGain
-			self.linkageMatrix.append([c1,c2,new_cluster,dic_key2value])
-			if linkageMethod == 'deltaModularity':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'minEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'maxEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'unionEdgeCountNormalized':
-				dic_cluster2edgeSumCount[new_cluster] = dic_cluster2edgeSumCount.get(c1,0.0) + dic_cluster2edgeSumCount.get(c2,0.0) - dic_edge2countWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'minEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'maxEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'unionEdgeWeightNormalized':
-				dic_cluster2edgeSumWeight[new_cluster] = dic_cluster2edgeSumWeight.get(c1,0.0) + dic_cluster2edgeSumWeight.get(c2,0.0) - dic_edge2sumWeight.get(K(c1,c2),0.0)
-			elif linkageMethod == 'minModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'maxModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-			elif linkageMethod == 'avgModularityWeightNormalized':
-				dic_cluster2modularitySumWeight[new_cluster]=dic_cluster2modularitySumWeight.get(c1,0.0)+dic_cluster2modularitySumWeight.get(c2,0.0)
-
-			set_cluster.remove(c1)
-			set_cluster.remove(c2)
-			lst_clusterPair2weight2=[]
-			for cluster in set_cluster:
-				e1, e2 =  K(c1,cluster), K(c2,cluster)
-				if e1 not in dic_edge2sumWeight and e2 not in dic_edge2sumWeight:
-					continue
-				new_e = K(new_cluster,cluster)
-				sumWeight = dic_edge2sumWeight.get(e1,0.0) + dic_edge2sumWeight.get(e2,0.0)
-				if e1 in dic_edge2sumWeight:
-					del dic_edge2sumWeight[e1]
-				if e2 in dic_edge2sumWeight:
-					del dic_edge2sumWeight[e2]
-				dic_edge2sumWeight[new_e]=sumWeight
-				if linkageMethod == 'single':
-					weight = max(dic_edge2maxWeight.get(e1,0.0),dic_edge2maxWeight.get(e2,0.0))
-					if e1 in dic_edge2maxWeight:
-						del dic_edge2maxWeight[e1]
-					if e2 in dic_edge2maxWeight:
-						del dic_edge2maxWeight[e2]
-					dic_edge2maxWeight[new_e]=weight
-				elif linkageMethod == 'complete':
-					weight = min(dic_edge2minWeight.get(e1,np.inf),dic_edge2minWeight.get(e2,np.inf))
-					if e1 in dic_edge2minWeight:
-						del dic_edge2minWeight[e1]
-					if e2 in dic_edge2minWeight:
-						del dic_edge2minWeight[e2]
-					dic_edge2minWeight[new_e]=weight
-				elif linkageMethod == 'weighted':
-					weight = 0.5*(dic_edge2weightedWeight.get(e1,0.0)+dic_edge2weightedWeight.get(e2,0.0))
-					if e1 in dic_edge2weightedWeight:
-						del dic_edge2weightedWeight[e1]
-					if e2 in dic_edge2weightedWeight:
-						del dic_edge2weightedWeight[e2]
-					dic_edge2weightedWeight[new_e]=weight
-				elif linkageMethod == 'average':
-					weight = sumWeight
-					weight /= float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0))
-				elif linkageMethod == 'deltaCost':
-					weight = 1.0 / (dic_cluster2sumWeight.get(new_cluster,0.0) * dic_cluster2nNode.get(cluster,1.0) + dic_cluster2sumWeight.get(cluster,0.0) * dic_cluster2nNode.get(new_cluster,1.0) - sumWeight * float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0)))
-				elif linkageMethod == 'deltaRev':
-					weight = sumWeight
-					weight /= float(dic_cluster2nNode.get(new_cluster,1.0)*dic_cluster2nNode.get(cluster,1.0))
-					weight *= nTotalNode-dic_cluster2nNode.get(new_cluster,1.0)-dic_cluster2nNode.get(cluster,1.0)
-				elif linkageMethod == 'deltaModularity':
-					weight = sumWeight
-					weight -= dic_cluster2modularitySumWeight.get(new_cluster,0.0)*dic_cluster2modularitySumWeight.get(cluster,0.0)/totalEdgeSumWeight
-				elif linkageMethod == 'edgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight/countWeight
-				elif linkageMethod == 'minEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= min(dic_cluster2edgeSumCount.get(new_cluster,0.0),dic_cluster2edgeSumCount.get(cluster,0.0))
-				elif linkageMethod == 'maxEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= max(dic_cluster2edgeSumCount.get(new_cluster,0.0),dic_cluster2edgeSumCount.get(cluster,0.0))
-				elif linkageMethod == 'unionEdgeCountNormalized':
-					countWeight = dic_edge2countWeight.get(e1,0.0)+dic_edge2countWeight.get(e2,0.0)
-					if e1 in dic_edge2countWeight:
-						del dic_edge2countWeight[e1]
-					if e2 in dic_edge2countWeight:
-						del dic_edge2countWeight[e2]
-					dic_edge2countWeight[new_e]=countWeight
-					weight = sumWeight
-					weight /= dic_cluster2edgeSumCount.get(new_cluster,0.0)+dic_cluster2edgeSumCount.get(cluster,0.0)-countWeight
-				elif linkageMethod == 'minEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= min(dic_cluster2edgeSumWeight.get(new_cluster,0.0),dic_cluster2edgeSumWeight.get(cluster,0.0))
-				elif linkageMethod == 'maxEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= max(dic_cluster2edgeSumWeight.get(new_cluster,0.0),dic_cluster2edgeSumWeight.get(cluster,0.0))
-				elif linkageMethod == 'unionEdgeWeightNormalized':
-					weight = sumWeight
-					weight /= dic_cluster2edgeSumWeight.get(new_cluster,0.0)+dic_cluster2edgeSumWeight.get(cluster,0.0)-sumWeight
-				elif linkageMethod == 'minModularityWeightNormalized':
-					weight = sumWeight
-					weight /= min(dic_cluster2modularitySumWeight.get(new_cluster,0.0),dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'maxModularityWeightNormalized':
-					weight = sumWeight
-					weight /= max(dic_cluster2modularitySumWeight.get(new_cluster,0.0),dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'avgModularityWeightNormalized':
-					weight = sumWeight
-					weight /= 0.5*(dic_cluster2modularitySumWeight.get(new_cluster,0.0)+dic_cluster2modularitySumWeight.get(cluster,0.0))
-				elif linkageMethod == 'minPossibleEdgeCountNormalized':
-					minNNode=min(dic_cluster2nNode.get(new_cluster,1.0),dic_cluster2nNode.get(cluster,1.0))
-					weight = sumWeight
-					weight /= minNNode*(nTotalNode-minNNode)
-				elif linkageMethod == 'minNodeNormalized':
-					minNNode=min(dic_cluster2nNode.get(new_cluster,1.0),dic_cluster2nNode.get(cluster,1.0))
-					weight = sumWeight
-					weight /= minNNode
-				lst_clusterPair2weight2.append([K(new_cluster, cluster), weight])
-			if len(lst_clusterPair2weight2) > 0:
-				lst_clusterPair2weight2.sort(key=lambda x: x[1])
-				dic_i2list[max_i]=lst_clusterPair2weight2
-				heapq.heappush(lst_target,(-dic_i2list[max_i][-1][1],max_i))
-				max_i+=1
-			set_cluster.add(new_cluster)
+			merge(c1, c2, new_cluster, False)
 			new_cluster+=1
 			if len(set_cluster) <= 1:
 				break
@@ -886,7 +1037,7 @@ class ChunkTree:
 		if nChunk <= 1:
 			self.dic_node2chunk={}
 			self.dic_chunk2nodes={0:self.set_node}
-			for node in enumerate(self.set_node):
+			for node in self.set_node:
 				self.dic_node2chunk[node]=0
 			return
 
@@ -1110,43 +1261,7 @@ class ChunkTree:
 					dic_cluster2nodes[c].remove(node)
 					dic_node2cluster[node]=-1
 
-				dic_shatteredNode2clusterWeightSum={}
-				for node in set_shatteredNode:
-					dic_c2w={}
-					for n2, weight in self.wKNNgraph.dic_node2node_weight[node].items():
-						c2 = dic_node2cluster[n2]
-						if c2 == -1:
-							continue
-						if c2 not in dic_c2w:
-							dic_c2w[c2]=0.0
-						dic_c2w[c2]+=weight
-						#dic_c2w[c2]=max(dic_c2w[c2],weight)
-					if len(dic_c2w) == 0:
-						weightSum = 0.0
-					else:
-						weightSum = max(dic_c2w.values())
-					dic_shatteredNode2clusterWeightSum[node]=[weightSum, dic_c2w]
-				lst_shatteredNode=list(set_shatteredNode)
-				while True:
-					if len(lst_shatteredNode) == 0:
-						break
-					lst_shatteredNode.sort(key=lambda x:dic_shatteredNode2clusterWeightSum[x][0],reverse=True)
-					node = lst_shatteredNode.pop(0)
-					weightSum, dic_c2w = dic_shatteredNode2clusterWeightSum[node]
-					c = sorted(dic_c2w.items(),key=lambda x:x[1], reverse=True)[0][0]
-					dic_cluster2nodes[c].add(node)
-					dic_node2cluster[node]=c
-					for n2, weight in self.wKNNgraph.dic_node2node_weight[node].items():
-						c2 = dic_node2cluster[n2]
-						if c2 != -1:
-							continue
-						weightSum, dic_c2w = dic_shatteredNode2clusterWeightSum[n2]
-						if c not in dic_c2w:
-							dic_c2w[c]=0.0
-						dic_c2w[c]+=weight
-						#dic_c2w[c]=max(dic_c2w[c],weight)
-						weightSum = max(dic_c2w.values())
-						dic_shatteredNode2clusterWeightSum[n2] = weightSum, dic_c2w
+				_reassignShatteredNodes(set_shatteredNode, dic_node2cluster, dic_cluster2nodes, self.wKNNgraph.dic_node2node_weight)
 
 				if tmpSilh < -0.0:
 					if len(dic_cluster2nodes[tmpC1]) == 0:
@@ -1167,43 +1282,7 @@ class ChunkTree:
 					dic_node2cluster[node]=-1
 				del dic_cluster2nodes[cluster]
 
-			dic_shatteredNode2clusterWeightSum={}
-			for node in set_shatteredNode:
-				dic_c2w={}
-				for n2, weight in self.wKNNgraph.dic_node2node_weight[node].items():
-					c2 = dic_node2cluster[n2]
-					if c2 == -1:
-						continue
-					if c2 not in dic_c2w:
-						dic_c2w[c2]=0.0
-					dic_c2w[c2]+=weight
-					#dic_c2w[c2]=max(dic_c2w[c2],weight)
-				if len(dic_c2w) == 0:
-					weightSum = 0.0
-				else:
-					weightSum = max(dic_c2w.values())
-				dic_shatteredNode2clusterWeightSum[node]=[weightSum, dic_c2w]
-			lst_shatteredNode=list(set_shatteredNode)
-			while True:
-				if len(lst_shatteredNode) == 0:
-					break
-				lst_shatteredNode.sort(key=lambda x:dic_shatteredNode2clusterWeightSum[x][0],reverse=True)
-				node = lst_shatteredNode.pop(0)
-				weightSum, dic_c2w = dic_shatteredNode2clusterWeightSum[node]
-				cluster = sorted(dic_c2w.items(),key=lambda x:x[1], reverse=True)[0][0]
-				dic_cluster2nodes[cluster].add(node)
-				dic_node2cluster[node]=cluster
-				for n2, weight in self.wKNNgraph.dic_node2node_weight[node].items():
-					c2 = dic_node2cluster[n2]
-					if c2 != -1:
-						continue
-					weightSum, dic_c2w = dic_shatteredNode2clusterWeightSum[n2]
-					if cluster not in dic_c2w:
-						dic_c2w[cluster]=0.0
-					dic_c2w[cluster]+=weight
-					#dic_c2w[cluster]=max(dic_c2w[cluster],weight)
-					weightSum = max(dic_c2w.values())
-					dic_shatteredNode2clusterWeightSum[n2] = weightSum, dic_c2w
+			_reassignShatteredNodes(set_shatteredNode, dic_node2cluster, dic_cluster2nodes, self.wKNNgraph.dic_node2node_weight)
 
 		self.dic_chunk2nodes={}
 		self.dic_node2chunk={}
@@ -1259,6 +1338,8 @@ class ChunkTree:
 		dic_chunk2nNode=dict([(chunk, len(set_node)) for chunk, set_node in self.dic_chunk2nodes.items()])
 		for linkageMethod in lst_linkageMethod:
 			agent = hierarchicalClusteringAgent(self.dic_chunk2nodes.keys(), linkageMethod, dic_edge2maxWeight=dic_chunkEdge2maxWeight, dic_edge2minWeight=dic_chunkEdge2minWeight, dic_edge2countWeight=dic_chunkEdge2countWeight, dic_edge2sumWeight=dic_chunkEdge2sumWeight, dic_node2n=dic_chunk2nNode, dic_node2countWeight=dic_chunk2countWeight, dic_node2sumWeight=dic_chunk2sumWeight, nTotalNode=self.nTotalNode)
+			agent.cachePrefix = True  # rounds below re-fit with an ever-growing merge prefix
+			agent.useKernel = True    # compiled kernel if available (exact, falls back to Python)
 			lst_agent.append(agent)
 
 		'''
@@ -1301,21 +1382,20 @@ class ChunkTree:
 		while True:
 			if len(set_cluster) <= 1:
 				break
-			if self.bestLinkageMatrix == None:
+			if self.bestLinkageMatrix is None:
 				linkageMatrix=[]
-				set_forbiddenPair=set()
 			else:
 				linkageMatrix=list(self.bestLinkageMatrix[:currentRound])
-				set_forbiddenPair=set()
-				set_forbiddenPair.add(K(self.bestLinkageMatrix[currentRound][0],self.bestLinkageMatrix[currentRound][1]))
+			prefixArray = np.array([[x[0], x[1], x[2]] for x in linkageMatrix], dtype=np.int64).reshape(-1, 3)
 			for i, agent in enumerate(lst_agent):
-				agent.fit(linkageMatrix)
-				if agent.linkageMatrix[-1][3]['cost'] < bestCost:
+				agent.fit(linkageMatrix, prefixArray=prefixArray)
+				agentCost = agent.finalCost()
+				if agentCost < bestCost:
 					lst_best_i=[i]
-					bestCost=agent.linkageMatrix[-1][3]['cost']
+					bestCost=agentCost
 					self.bestLinkageMatrix=list(agent.linkageMatrix)
 					bestMethod=agent.linkageMethod
-				elif agent.linkageMatrix[-1][3]['cost'] == bestCost:
+				elif agentCost == bestCost:
 					lst_best_i.append(i)
 					bestMethod+=';'+agent.linkageMethod
 			for i in lst_best_i:
@@ -1336,13 +1416,14 @@ class ChunkTree:
 			set_forbiddenPair.add(K(lst_agent[best_i].linkageMatrix[currentRound][0],lst_agent[best_i].linkageMatrix[currentRound][1]))
 			nIter=10
 			for n in range(nIter):
-				lst_agent[best_i].fit(linkageMatrix,set_forbiddenPair=set_forbiddenPair)
-				if lst_agent[best_i].linkageMatrix[-1][3]['cost'] < bestCost:
-					bestCost=lst_agent[best_i].linkageMatrix[-1][3]['cost']
+				lst_agent[best_i].fit(linkageMatrix,set_forbiddenPair=set_forbiddenPair,prefixArray=prefixArray)
+				agentCost = lst_agent[best_i].finalCost()
+				if agentCost < bestCost:
+					bestCost=agentCost
 					self.bestLinkageMatrix=list(lst_agent[best_i].linkageMatrix)
 				set_forbiddenPair2=set()
-				for x in lst_agent[best_i].linkageMatrix[currentRound:]:
-					pair = K(x[0],x[1])
+				for c1, c2 in lst_agent[best_i].mergePairs(currentRound):
+					pair = K(c1,c2)
 					if pair[0] in set_forbiddenNode or pair[1] in set_forbiddenNode:
 						if pair not in set_forbiddenPair:
 							set_forbiddenPair2.add(pair)
@@ -1450,6 +1531,7 @@ class ChunkTree:
 						dic_edge2weight[K(node,n2)]=weight
 						dic_edge2count[K(node,n2)]=1.0
 			agent = hierarchicalClusteringAgent(set_node, linkageMethod, dic_edge2maxWeight=dic_edge2weight, dic_edge2minWeight=dic_edge2weight, dic_edge2countWeight=dic_edge2count, dic_edge2sumWeight=dic_edge2weight, nTotalNode=self.nTotalNode)
+			agent.useKernel = True
 			agent.fit()
 			tmplinkageMatrix=agent.linkageMatrix
 			for x in tmplinkageMatrix:
@@ -1566,7 +1648,7 @@ if __name__ == "__main__":
 	parser.add_argument('-nNeighbor', required=False, type=int, default=10, help='Alpha-nearest neighbor graph (default = 10)')
 	parser.add_argument('-nChunk', required=False, default='auto', help='the number of chunks (default = auto = 80+int(log_2 N))')
 	parser.add_argument('-nIteration', required=False, default='auto', help='the iteration of recursive optimization (default = auto = 2+int(sqrt(k))')
-	parser.add_argument('-outlierRatio', required=False, type=float, default=0.9, help='the outlier ratio (default = 0.09)')
+	parser.add_argument('-outlierRatio', required=False, type=float, default=0.09, help='the outlier ratio (default = 0.09)')
 	parser.add_argument('-GraphConversionMethod', required=False, default='WKNN', choices=['None','WKNN'], help='How to convert distance into graph (default = WKNN)')
 	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'average'], help='chunking method')
 	args=parser.parse_args()

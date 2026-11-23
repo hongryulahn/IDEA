@@ -10,11 +10,18 @@ IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization ba
 - scikit-learn (https://scikit-learn.org/stable/install.html)
 - PyMetis (https://pypi.org/project/PyMetis/)
 
+- (optional, recommended) numba — compiled kernel for the agglomeration step, ~2x faster on top of the pure-Python optimisations
+
 ```bash
 pip install scikit-learn
 pip install pybind11
 pip install pymetis
+pip install numba        # optional
 ```
+or `pip install -r requirements.txt`.
+
+Without numba (or with `IDEA_NO_NUMBA=1`) the pure-Python implementation is used. Both paths
+produce exactly the same clustering and linkage output as the original implementation.
 
 <br>
 
@@ -40,6 +47,34 @@ python IDEA.py data/C05.data.points 10 -dataType datapoints -o C05.cluster -o2 C
 python IDEA.py data/C06.data.points 9  -dataType datapoints -o C06.cluster -o2 C06.linkage -o3 C06.graph
 python IDEA.py data/D01.data.dist.fullmatrix 11 -dataType dissimilarity -o D01.cluster -o2 D01.linkage -o3 D01.graph
 python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.cluster -o2 D02.linkage -o3 D02.graph
+```
+
+<br>
+
+## Performance notes
+The algorithm is unchanged; only its implementation was optimised. On the 20 bundled datasets the
+cluster and linkage outputs are byte-identical to the original code, and the total run time drops
+from ~275 s to ~69 s (4.0x; ~2x without numba). Main changes:
+
+- `hierarchicalClusteringAgent.fit`: each merge visits only the neighbours of the merged pair
+  (adjacency sets) instead of scanning every live cluster; per-method updates are bound once
+  instead of an `if/elif` string chain; the replayed merge prefix is cached between rounds of
+  `chunkEnsembleClustering`. Tie order is reproduced exactly (falls back to the original
+  set-iteration order when equal weights occur).
+- `IDEA_kernel.py` (numba, optional): the same agglomeration compiled, used for agents with
+  up to 512 clusters. Order-sensitive corner cases (ties, exhausted heap, NaN, zero divisors)
+  are handed back to the exact Python implementation.
+- Shattered-node reassignment in `chunking` uses a heap instead of re-sorting the list after
+  every pick (same pick order).
+- WKNN graph construction memoises `exp` of the (few distinct) rank sums.
+- METIS is called through `pymetis.CSRAdjacency` (the `xadj/adjncy` form is deprecated).
+- Fix: the CLI default of `-outlierRatio` was `0.9` although documented (and used by `IDEA.fit`)
+  as `0.09`; it is now `0.09`. With `0.9` almost every point was reported as an outlier (`-1`).
+
+Verification / benchmarking:
+```bash
+python tests/test_equivalence.py --orig /path/to/original/IDEA.py   # randomised equivalence tests
+python bench/run_bench.py . out_dir -j 20 [--ref reference_out_dir]  # runs all 20 datasets, ARI/NMI, diff vs reference
 ```
 
 <br>

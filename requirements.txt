@@ -1,0 +1,6 @@
+numpy
+scipy
+scikit-learn
+pybind11
+pymetis
+numba  # optional: compiled kernel
