@@ -1,12 +1,14 @@
-# 변경 이력 (CHANGELOG)
+# Changelog
 
-## v1.0.1 — 2026-11-24 (버그 수정)
-- CLI `-outlierRatio` 기본값 오타 수정: `0.9` → `0.09`.
-  - 첫 업로드(2019-07-31, `8a21d04`)부터 명령행 인자 기본값에만 있던 오타다.
-    논문(Algorithm 1, §IV: γ = 0.09), 도움말, `IDEA.fit()` 기본값은 모두 0.09 이고 논문 실험도 0.09 로 했다.
-  - 오타 때문에 README 예제 명령을 그대로 실행하면 거의 모든 점이 이상치(`-1`)로 나왔다
-    (20개 데이터셋 평균 ARI 0.115; 0.09 에서는 0.922).
-  - 그 밖의 코드 변경은 없다. 논문 재현은 이 버전을 쓴다.
+## v1.0.1 — 2026-11-24 (bug fix)
+- Command-line default of `-outlierRatio`: typo `0.9` → `0.09`.
+  - The typo had been in the command-line default only, since the first upload (2019-07-31, `8a21d04`).
+    The paper (Algorithm 1 and §IV: γ = 0.09), the help text and `IDEA.fit()` all use 0.09, and the paper
+    experiments were run with 0.09. **The published results are not affected.**
+  - Because of the typo, running the README example commands with `v1.0-paper` as-is marked almost every point
+    as an outlier (`-1`): mean ARI 0.115 instead of 0.922 over the 20 bundled datasets.
+  - No other code change. With default options the output equals `v1.0-paper` with `-outlierRatio 0.09` on all
+    20 bundled datasets. Use this version to reproduce the paper.
 
-## v1.0-paper — 논문 출판 버전 (커밋 `b4964c5`)
-IDEA (Ahn et al., IEEE BigData 2021, pp. 2791–2800, doi:10.1109/BigData52589.2021.9671953) 공개 구현.
+## v1.0-paper — published version (commit `b4964c5`)
+Public implementation of IDEA (Ahn et al., IEEE BigData 2021, pp. 2791–2800, doi:10.1109/BigData52589.2021.9671953).
