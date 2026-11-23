@@ -1,7 +1,26 @@
 IDEA
 ====
 
+> **Versions.** The results in the paper (IEEE BigData 2021) were produced with release
+> [`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper)
+> (`git checkout v1.0-paper`). The current version (`v1.1.0`) gives byte-identical
+> clustering output with the default options and is ~4.6x faster; changes, recommended
+> options and an accuracy comparison are listed in [CHANGELOG.md](CHANGELOG.md).
+>
+> **Note on `v1.0-paper`:** its command-line default for `-outlierRatio` was `0.9`, while the
+> paper, the help text and `IDEA.fit()` use `0.09`. The paper results are not affected, but the
+> example commands below run with `v1.0-paper` need `-outlierRatio 0.09` to reproduce them.
+> Fixed in `v1.1.0`.
+
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data.
+
+<br>
+
+## Citation
+Ahn H., Jung I., Chae H., Oh M., Kim I., Kim S. *IDEA: Integrating Divisive and Ensemble-Agglomerate
+hierarchical clustering framework for arbitrary shape data.* 2021 IEEE International Conference on
+Big Data, pp. 2791–2800. doi:[10.1109/BigData52589.2021.9671953](https://doi.org/10.1109/BigData52589.2021.9671953)
+(see also `CITATION.cff`).
 
 <br>
 

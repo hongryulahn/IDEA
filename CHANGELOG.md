@@ -1,14 +1,21 @@
 # 변경 이력 (CHANGELOG)
 
-## v1.1 — 2026-11-24 (브랜치 `dev/optimization`)
+버전 규칙 ([Semantic Versioning](https://semver.org/lang/ko/)):
+- 패치 (x.y.**Z**): 버그 수정
+- 마이너 (x.**Y**.0): 기본 결과가 같은 기능 추가·성능 개선
+- 메이저 (**X**.0.0): 기본 결과가 달라지는 알고리즘 변경
 
-원본(v1.0, 커밋 `b4964c5`)의 알고리즘은 그대로 두고 구현만 최적화했다. 기본 옵션으로 실행하면
+논문 (IEEE BigData 2021) 결과는 `v1.0-paper` 로 재현한다.
+
+## v1.1.0 — 2026-11-24
+
+원본(`v1.0-paper`, 커밋 `b4964c5`)의 알고리즘은 그대로 두고 구현만 최적화했다. 기본 옵션으로 실행하면
 20개 데이터셋 모두에서 클러스터·linkage 출력이 원본과 **바이트 단위로 같다**
 (`-outlierRatio 0.09` 기준. 아래 "버그 수정" 참고). 그래프 청킹 방법을 선택 옵션으로 추가했다.
 
 ### 1. 옵션 비교: 원본 vs 현재 권장
 
-| 옵션 | 원본 v1.0 (논문 / 코드) | 현재 v1.1 권장값 | 비고 |
+| 옵션 | 원본 v1.0-paper (논문 / 코드) | 현재 v1.1.0 권장값 | 비고 |
 |---|---|---|---|
 | `-nNeighbor` (α) | 10 | 10 | WNN 이웃 수 |
 | WNN λ (`l`) | 0.5 | 0.5 | rank 항과 neighborness 항의 가중 |
@@ -96,6 +103,8 @@
 
 **버그 수정**
 - CLI `-outlierRatio` 기본값 0.9 → 0.09 (도움말·`IDEA.fit` 기본값과 일치).
+  논문은 γ = 0.09 를 명시하므로 (Algorithm 1, §IV) **논문 수치에는 영향이 없다.**
+  `v1.0-paper` 에서 README 예제 명령을 그대로 실행할 때만 영향을 받는다 (`-outlierRatio 0.09` 를 붙이면 재현됨).
 - `chunking` 의 `nChunk <= 1` 분기: `for node in enumerate(...)` 가 튜플을 키로 넣던 문제.
 
 **검증·도구**
@@ -116,6 +125,6 @@ python bench/compare_methods.py metis=out_metis leiden_cpm=out_leiden_cpm ...
 python tests/test_equivalence.py --orig ../IDEA_orig/IDEA.py
 ```
 
-## v1.0 — 원본 (커밋 `b4964c5`)
+## v1.0-paper — 논문 출판 버전 (커밋 `b4964c5`)
 
-IDEA (Ahn et al., IEEE BigData 2021) 공개 구현.
+IDEA (Ahn et al., IEEE BigData 2021, pp. 2791–2800, doi:10.1109/BigData52589.2021.9671953) 공개 구현.
