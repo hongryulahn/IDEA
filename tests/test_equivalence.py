@@ -4,6 +4,8 @@
     python tests/test_equivalence.py [--orig PATH_TO_ORIGINAL_IDEA.py] [-n N]
 
 * _reassignShatteredNodes  vs. the original re-sort loop (copied below verbatim)
+* WKNNgraph (vectorised WNN) vs. the original WKNNgraph.py on the bundled data
+  and on synthetic inputs with duplicate points / tied distances
 * hierarchicalClusteringAgent (compiled kernel and pure-Python paths) vs. the
   agent of the original IDEA.py, for all 11 'auto' linkage methods, with merge
   prefixes and forbidden pairs.  Integer-valued weights are used on purpose so
@@ -193,6 +195,41 @@ def test_node_level(rng, ORIG, n_cases):
     print('node-level agents: %d random graphs x %d methods identical (incl. value types)' % (n_cases, len(AUTO)))
 
 
+def test_wnn(rng, orig_wknn_path, tmpdir):
+    import glob, tempfile
+    import WKNNgraph as WN
+    spec = importlib.util.spec_from_file_location('WKNN_orig_mod', orig_wknn_path)
+    WO = importlib.util.module_from_spec(spec); spec.loader.exec_module(WO)
+    files = [(f, 'points') for f in sorted(glob.glob(os.path.join(HERE, 'data', '*.data.points')))[:6]]
+    files += [(f, 'dissimilarity') for f in sorted(glob.glob(os.path.join(HERE, 'data', '*.data.dist.*')))]
+    # duplicates on an integer grid -> self loops and many tied distances; tied similarity file
+    p = os.path.join(tmpdir, 'dup.points')
+    with open(p, 'w') as fh:
+        for i in range(400):
+            fh.write('%d\t%d\t%d\n' % (i, rng.randint(0, 6), rng.randint(0, 6)))
+    files.append((p, 'points'))
+    q = os.path.join(tmpdir, 'sim.txt')
+    with open(q, 'w') as fh:
+        for a in range(150):
+            for b in rng.sample(range(150), 12):
+                if a != b:
+                    fh.write('%d\t%d\t%d\n' % (a, b, rng.randint(1, 4)))
+    files += [(q, 'similarity'), (q, 'dissimilarity')]
+    for path, kind in files:
+        a, b = WO.WKNNgraph(), WN.WKNNgraph()
+        if kind == 'points':
+            a.constructGraphByData(path); b.constructGraphByData(path)
+        else:
+            a.constructGraph(path, kind); b.constructGraph(path, kind)
+        A, B = a.dic_node2node_weight, b.dic_node2node_weight
+        assert a.dic_node2name == b.dic_node2name and list(A) == list(B), ('wnn node order', path)
+        for k in A:
+            assert list(A[k]) == list(B[k]), ('wnn key order', path, k)
+            for j in A[k]:
+                assert A[k][j] == B[k][j] and type(A[k][j]) == type(B[k][j]), ('wnn weight', path, k, j)
+    print('WNN graph: %d inputs identical (weights, key order, value types)' % len(files))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--orig', default=os.path.join(os.path.dirname(HERE), 'IDEA_orig', 'IDEA.py'))
@@ -204,6 +241,9 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(a.orig)))
     spec.loader.exec_module(ORIG)
     rng = random.Random(a.seed)
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        test_wnn(rng, os.path.join(os.path.dirname(os.path.abspath(a.orig)), 'WKNNgraph.py'), td)
     test_shattered(rng, a.n * 5)
     test_agents(rng, ORIG, a.n)
     test_node_level(rng, ORIG, a.n)
