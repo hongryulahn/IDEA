@@ -1,20 +1,18 @@
 IDEA
 ====
 
-> **Versions.** To reproduce the paper (IEEE BigData 2021) use release
-> [`v1.0.1`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0.1) (`git checkout v1.0.1`):
-> the paper code ([`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper))
-> plus one bug fix. The current version (`v1.1.0`) gives byte-identical clustering output with
-> the default options and is ~4.6x faster; changes, recommended options and an accuracy
-> comparison are listed in [CHANGELOG.md](CHANGELOG.md).
->
-> **Bug fixed in `v1.0.1`:** a typo, present since the first upload, set the command-line default
-> of `-outlierRatio` to `0.9`. The paper, the help text and `IDEA.fit()` all use `0.09`, and the
-> paper experiments were run with 0.09, so the published results are not affected. With
-> `v1.0-paper` the example commands below mark almost every point as an outlier unless
-> `-outlierRatio 0.09` is added.
-
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data.
+
+## Versions
+
+| Version | What it is | Results |
+|---|---|---|
+| [`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper) | Code at the time of the paper (IEEE BigData 2021) | Same algorithm as the paper, but a typo sets the command-line default of `-outlierRatio` to `0.9` instead of `0.09`; the example commands only match the paper with `-outlierRatio 0.09` |
+| [`v1.0.1`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0.1) | `v1.0-paper` + fix of that typo, nothing else | **Same as the paper** — use this to reproduce the paper |
+| `v1.1.0` | Faster implementation (~4.6x) and new optional graph chunking methods (`-chunkingMethod`) | **Default options: byte-identical to `v1.0.1`**; results differ only if a new chunking method is chosen |
+
+The paper experiments were run with outlier ratio γ = 0.09, so the typo does not affect the published results.
+Details: [CHANGELOG.md](CHANGELOG.md).
 
 <br>
 
