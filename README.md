@@ -17,6 +17,7 @@ pip install scikit-learn
 pip install pybind11
 pip install pymetis
 pip install numba        # optional
+pip install python-igraph # optional: leiden / louvain chunking
 ```
 or `pip install -r requirements.txt`.
 
@@ -54,7 +55,7 @@ python IDEA.py data/D02.data.dist.sparsematrix 5 -dataType dissimilarity -o D02.
 ## Performance notes
 The algorithm is unchanged; only its implementation was optimised. On the 20 bundled datasets the
 cluster and linkage outputs are byte-identical to the original code, and the total run time drops
-from ~275 s to ~69 s (4.0x; ~2x without numba). Main changes:
+from ~275 s to ~60 s (4.6x; ~2x without numba). Main changes:
 
 - `hierarchicalClusteringAgent.fit`: each merge visits only the neighbours of the merged pair
   (adjacency sets) instead of scanning every live cluster; per-method updates are bound once
@@ -70,6 +71,10 @@ from ~275 s to ~69 s (4.0x; ~2x without numba). Main changes:
 - METIS is called through `pymetis.CSRAdjacency` (the `xadj/adjncy` form is deprecated).
 - Fix: the CLI default of `-outlierRatio` was `0.9` although documented (and used by `IDEA.fit`)
   as `0.09`; it is now `0.09`. With `0.9` almost every point was reported as an outlier (`-1`).
+
+Graph chunking can be selected with `-chunkingMethod` (`metis` default = rMETIS as in the paper;
+`metis_kway`, `leiden_cpm`, `leiden_mod`, `louvain` (need `pip install python-igraph`), `spectral`, `average`).
+Recommended options and an accuracy comparison of all chunking methods are in [CHANGELOG.md](CHANGELOG.md).
 
 Verification / benchmarking:
 ```bash
