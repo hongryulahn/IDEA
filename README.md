@@ -1,13 +1,18 @@
 IDEA
 ====
 
-> **v1.0.1 (bug fix):** in `v1.0-paper` the command-line default of `-outlierRatio` was `0.9`
-> because of a typo present since the first upload. The paper, the help text and `IDEA.fit()`
-> all use **0.09**, and the paper experiments were run with 0.09. With the typo, the example
-> commands below label almost every point as an outlier (`-1`). Use `v1.0.1` (this version) to
-> reproduce the paper; with `v1.0-paper`, add `-outlierRatio 0.09`. No other change.
-
 IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization based ensemble hierarchical clustering framework for arbitrary shape data.
+
+## Versions
+
+| Version | What it is | Results |
+|---|---|---|
+| [`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper) | Code at the time of the paper (IEEE BigData 2021) | Same algorithm as the paper, but a typo sets the command-line default of `-outlierRatio` to `0.9` instead of `0.09`; the example commands only match the paper with `-outlierRatio 0.09` |
+| [`v1.0.1`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0.1) | `v1.0-paper` + fix of that typo, nothing else | **Same as the paper** — use this to reproduce the paper |
+| `v1.1.0` | Faster implementation (~4.6x) and new optional graph chunking methods (`-chunkingMethod`) | **Default options: byte-identical to `v1.0.1`**; results differ only if a new chunking method is chosen |
+
+The paper experiments were run with outlier ratio γ = 0.09, so the typo does not affect the published results.
+Details: [CHANGELOG.md](CHANGELOG.md).
 
 <br>
 
