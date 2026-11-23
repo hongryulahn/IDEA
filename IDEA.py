@@ -9,6 +9,7 @@ import random
 import heapq
 import operator
 from WKNNgraph import *
+import IDEA_chunking
 
 # Optional compiled kernel for the chunk-level agents (falls back to pure Python).
 # Set IDEA_NO_NUMBA=1 to force the pure Python implementation.
@@ -1101,6 +1102,10 @@ class ChunkTree:
 
 		if chunkingMethod == 'metis_kway':
 			lst_clusters=partitionByMetis(self.set_node, nChunk, self.wKNNgraph, recursive=False)
+			if len(lst_clusters) > nChunk:
+				# k-way parts split into many connected pieces on sparse graphs (D02: 2433 pieces
+				# for 85 chunks); merge the smallest piece into its strongest neighbour
+				lst_clusters = IDEA_chunking._mergeSmallest(self.wKNNgraph.dic_node2node_weight, lst_clusters, nChunk)
 			dic_node2cluster={}
 			for cluster, set_node in enumerate(lst_clusters):
 				for node in set_node:
@@ -1134,6 +1139,20 @@ class ChunkTree:
 				for node in set_node:
 					self.dic_node2chunk[node]=chunk
 			return
+
+		if chunkingMethod in IDEA_chunking.METHODS:
+			# community detection / spectral partition of the (connected) subtree graph
+			lst_set = IDEA_chunking.partition(self.wKNNgraph, self.set_node, nChunk, chunkingMethod,
+				bisect=lambda nodes: partitionByMetis(nodes, 2, self.wKNNgraph), connectedComponent=connectedComponent)
+			self.dic_chunk2nodes={}
+			self.dic_node2chunk={}
+			for chunk, set_node in enumerate(lst_set):
+				self.dic_chunk2nodes[chunk]=set_node
+				for node in set_node:
+					self.dic_node2chunk[node]=chunk
+			return
+		elif chunkingMethod != 'metis':
+			raise ValueError('unknown chunkingMethod %s' % chunkingMethod)
 
 		if self.dic_chunk2nodes == None:
 			dic_cluster2nodes={}
@@ -1650,7 +1669,10 @@ if __name__ == "__main__":
 	parser.add_argument('-nIteration', required=False, default='auto', help='the iteration of recursive optimization (default = auto = 2+int(sqrt(k))')
 	parser.add_argument('-outlierRatio', required=False, type=float, default=0.09, help='the outlier ratio (default = 0.09)')
 	parser.add_argument('-GraphConversionMethod', required=False, default='WKNN', choices=['None','WKNN'], help='How to convert distance into graph (default = WKNN)')
-	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'average'], help='chunking method')
+	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'metis_kway', 'leiden_cpm', 'leiden_mod', 'louvain', 'spectral', 'average'],
+		help='graph chunking method (default = metis: recursive METIS bisection + silhouette refinement, as in the paper). '
+		'metis_kway: METIS k-way; leiden_cpm / leiden_mod / louvain: community detection with resolution tuned to nChunk (needs python-igraph); '
+		'spectral: recursive spectral bisection; average: average-linkage cut (slow)')
 	args=parser.parse_args()
 	
 

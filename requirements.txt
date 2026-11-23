@@ -4,3 +4,4 @@ scikit-learn
 pybind11
 pymetis
 numba  # optional: compiled kernel
+python-igraph  # optional: leiden_cpm / leiden_mod / louvain chunking
