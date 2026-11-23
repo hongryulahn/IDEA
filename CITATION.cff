@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the IDEA paper below."
+title: "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework"
+version: 1.1.0
+date-released: 2026-11-24
+repository-code: "https://github.com/hongryulahn/IDEA"
+authors:
+  - family-names: Ahn
+    given-names: Hongryul
+preferred-citation:
+  type: conference-paper
+  title: "IDEA: Integrating Divisive and Ensemble-Agglomerate hierarchical clustering framework for arbitrary shape data"
+  authors:
+    - family-names: Ahn
+      given-names: Hongryul
+    - family-names: Jung
+      given-names: Inuk
+    - family-names: Chae
+      given-names: Heejoon
+    - family-names: Oh
+      given-names: Minsik
+    - family-names: Kim
+      given-names: Inyoung
+    - family-names: Kim
+      given-names: Sun
+  collection-title: "2021 IEEE International Conference on Big Data (Big Data)"
+  publisher:
+    name: IEEE
+  year: 2021
+  start: 2791
+  end: 2800
+  doi: "10.1109/BigData52589.2021.9671953"
