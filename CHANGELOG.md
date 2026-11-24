@@ -7,7 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/):
 
 To reproduce the paper (IEEE BigData 2021), use `v1.0.1` (= `v1.0-paper` + one typo fix).
 
-## v1.2.0 — unreleased
+## v1.2.0 — 2026-11-24
 
 New optional outlier post-processing. The published algorithm and all default results are unchanged
 (with default options the output is still byte-identical to `v1.0.1`).
