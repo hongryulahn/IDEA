@@ -6,6 +6,7 @@
 * _reassignShatteredNodes  vs. the original re-sort loop (copied below verbatim)
 * WKNNgraph (vectorised WNN) vs. the original WKNNgraph.py on the bundled data
   and on synthetic inputs with duplicate points / tied distances
+* IDEA_outlier.assignOutliers (heap) vs. brute-force one-at-a-time greedy
 * hierarchicalClusteringAgent (compiled kernel and pure-Python paths) vs. the
   agent of the original IDEA.py, for all 11 'auto' linkage methods, with merge
   prefixes and forbidden pairs.  Integer-valued weights are used on purpose so
@@ -230,6 +231,68 @@ def test_wnn(rng, orig_wknn_path, tmpdir):
     print('WNN graph: %d inputs identical (weights, key order, value types)' % len(files))
 
 
+def brute_assign(lm, labels, g):
+    """Reference: recompute every chunk-cluster weight, attach the single best pair, repeat."""
+    import IDEA_outlier as O
+    out = dict(labels)
+    chunks = O.outlierChunks(lm, labels)
+    children, parent = O._tree(lm)
+    left = list(range(len(chunks)))
+    while left:
+        best = None
+        for i in left:
+            s = {}
+            for v in chunks[i][1]:
+                for n2, w in g.get(v, {}).items():
+                    c = out.get(n2, -1)
+                    if c != -1 and n2 not in chunks[i][1]:
+                        s[c] = s.get(c, 0.0) + w
+            for c, w in s.items():
+                key = (-w, i, c)
+                if best is None or key < best:
+                    best = key
+        if best is None:                       # no graph connection: tree fallback, first chunk
+            i = left[0]
+            c = O._treeNearest(chunks[i][0], children, parent, out)
+        else:
+            _, i, c = best
+        for v in chunks[i][1]:
+            out[v] = c
+        left.remove(i)
+    return out
+
+
+def test_outlier_assign(rng, n_cases):
+    import IDEA_outlier as O
+    n_chain = n_tree = 0
+    for case in range(n_cases):
+        n = rng.randint(4, 120)
+        # random binary tree in linkage form (leaves 0..n-1, internal ids n, n+1, ...)
+        live = list(range(n)); lm = []; nxt = n
+        while len(live) > 1:
+            a, b = rng.sample(live, 2)
+            live.remove(a); live.remove(b)
+            lm.append([a, b, 0.0, 0]); live.append(nxt); nxt += 1
+        # random labels: k clusters, a share of -1
+        k = rng.randint(1, 6)
+        labels = dict((v, (-1 if rng.random() < rng.choice([0.1, 0.3, 0.6]) else rng.randrange(k))) for v in range(n))
+        if all(c == -1 for c in labels.values()):
+            labels[0] = 0
+        # sparse graph, integer weights (ties), sometimes disconnected parts
+        g = dict((v, {}) for v in range(n))
+        for v in range(n):
+            for u in rng.sample(range(n), min(n - 1, rng.randint(0, 3))):
+                if u != v:
+                    w = float(rng.randint(1, 3)); g[v][u] = w; g[u][v] = w
+        got, st = O.assignOutliers(lm, labels, g, returnStats=True)
+        ref = brute_assign(lm, labels, g)
+        assert got == ref, ('outlier assignment mismatch', case)
+        assert all(c != -1 for c in got.values())
+        assert all(got[v] == c for v, c in labels.items() if c != -1)
+        n_chain += st['chain']; n_tree += st['tree']
+    print('outlier assignment: %d random cases identical to brute-force greedy (chain %d, tree fallback %d)' % (n_cases, n_chain, n_tree))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--orig', default=os.path.join(os.path.dirname(HERE), 'IDEA_orig', 'IDEA.py'))
@@ -244,6 +307,7 @@ def main():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         test_wnn(rng, os.path.join(os.path.dirname(os.path.abspath(a.orig)), 'WKNNgraph.py'), td)
+    test_outlier_assign(rng, a.n * 5)
     test_shattered(rng, a.n * 5)
     test_agents(rng, ORIG, a.n)
     test_node_level(rng, ORIG, a.n)

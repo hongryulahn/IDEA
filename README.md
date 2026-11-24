@@ -91,6 +91,9 @@ from ~275 s to ~60 s (4.6x; ~2x without numba). Main changes:
 - Fix: the CLI default of `-outlierRatio` was `0.9` although documented (and used by `IDEA.fit`)
   as `0.09`; it is now `0.09`. With `0.9` almost every point was reported as an outlier (`-1`).
 
+Outliers (`-1`) can optionally be assigned to the k clusters with `-outlierAssignment greedy`
+(post-processing, not part of the paper; default `none` keeps the paper's behaviour).
+
 Graph chunking can be selected with `-chunkingMethod` (`metis` default = rMETIS as in the paper;
 `metis_kway`, `leiden_cpm`, `leiden_mod`, `louvain` (need `pip install python-igraph`), `spectral`, `average`).
 Recommended options and an accuracy comparison of all chunking methods are in [CHANGELOG.md](CHANGELOG.md).

@@ -10,6 +10,7 @@ import heapq
 import operator
 from WKNNgraph import *
 import IDEA_chunking
+import IDEA_outlier
 
 # Optional compiled kernel for the chunk-level agents (falls back to pure Python).
 # Set IDEA_NO_NUMBA=1 to force the pure Python implementation.
@@ -1583,7 +1584,8 @@ class IDEA:
 		self.lst_name=None
 		pass
 
-	def fit(self, X, k, Xtype='graph', nNeighbor=10, nChunk='auto', nIteration='auto', outlierRatio=0.09, GraphConversionMethod='WKNN', chunkingMethod='metis', costFunction=lambda weightSum, nNode: weightSum*nNode*nNode):
+	def fit(self, X, k, Xtype='graph', nNeighbor=10, nChunk='auto', nIteration='auto', outlierRatio=0.09, GraphConversionMethod='WKNN', chunkingMethod='metis', costFunction=lambda weightSum, nNode: weightSum*nNode*nNode, outlierAssignment='none'):
+		assert(outlierAssignment in ['none', 'greedy']),("outlierAssignment must be 'none' or 'greedy'")
 		if nIteration == 'auto':
 			nIteration=2+int(np.sqrt(k))
 		assert(Xtype in ['datapoints', 'similarity', 'dissimilarity']),("Xtype must be one of the 'graph', 'similarity', 'dissimilarity'")
@@ -1646,6 +1648,9 @@ class IDEA:
 				linkageMatrix+=tmplinkageMatrix
 		self.linkageMatrix = arrangeLinkageMatrix(linkageMatrix)
 		dic_node2cluster = cutTree(self.linkageMatrix,k,outlierRatio=outlierRatio)###
+		if outlierAssignment == 'greedy':
+			# optional post-processing (not part of the published algorithm): exactly k clusters, no -1
+			dic_node2cluster = IDEA_outlier.assignOutliers(self.linkageMatrix, dic_node2cluster, wKNNgraph.dic_node2node_weight)
 		assert(max(dic_node2cluster.keys())==len(dic_node2cluster)-1),("error")
 		self.membership = [cluster for node, cluster in sorted(dic_node2cluster.items())]
 		self.wKNNgraph = wKNNgraph
@@ -1669,6 +1674,9 @@ if __name__ == "__main__":
 	parser.add_argument('-nIteration', required=False, default='auto', help='the iteration of recursive optimization (default = auto = 2+int(sqrt(k))')
 	parser.add_argument('-outlierRatio', required=False, type=float, default=0.09, help='the outlier ratio (default = 0.09)')
 	parser.add_argument('-GraphConversionMethod', required=False, default='WKNN', choices=['None','WKNN'], help='How to convert distance into graph (default = WKNN)')
+	parser.add_argument('-outlierAssignment', required=False, default='none', choices=['none', 'greedy'],
+		help='optional outlier post-processing (not part of the paper): none = keep outliers as -1 (default, as in the paper); '
+		'greedy = assign each outlier subtree to the cluster it is most strongly connected to in the WNN graph, one at a time, so that there are exactly k clusters')
 	parser.add_argument('-chunkingMethod', required=False, default='metis', choices=['metis', 'metis_kway', 'leiden_cpm', 'leiden_mod', 'louvain', 'spectral', 'average'],
 		help='graph chunking method (default = metis: recursive METIS bisection + silhouette refinement, as in the paper). '
 		'metis_kway: METIS k-way; leiden_cpm / leiden_mod / louvain: community detection with resolution tuned to nChunk (needs python-igraph); '
@@ -1678,7 +1686,7 @@ if __name__ == "__main__":
 
 	global_starttime=time.time()
 	idea = IDEA()
-	idea.fit(X=args.datafile, k=args.k, Xtype=args.dataType, nNeighbor=args.nNeighbor, nChunk=args.nChunk, nIteration=args.nIteration, outlierRatio=args.outlierRatio, GraphConversionMethod=args.GraphConversionMethod, chunkingMethod=args.chunkingMethod)
+	idea.fit(X=args.datafile, k=args.k, Xtype=args.dataType, nNeighbor=args.nNeighbor, nChunk=args.nChunk, nIteration=args.nIteration, outlierRatio=args.outlierRatio, GraphConversionMethod=args.GraphConversionMethod, chunkingMethod=args.chunkingMethod, outlierAssignment=args.outlierAssignment)
 
 	# output clustering results
 	if args.o == 'stdout':
