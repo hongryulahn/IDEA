@@ -10,6 +10,7 @@ IDEA (*Integrating Divisive and Ensemble-Agglomerate*) is a cost-optimization ba
 | [`v1.0-paper`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0-paper) | Code at the time of the paper (IEEE BigData 2021) | Same algorithm as the paper, but a typo sets the command-line default of `-outlierRatio` to `0.9` instead of `0.09`; the example commands only match the paper with `-outlierRatio 0.09` |
 | [`v1.0.1`](https://github.com/hongryulahn/IDEA/releases/tag/v1.0.1) | `v1.0-paper` + fix of that typo, nothing else | **Same as the paper** — use this to reproduce the paper |
 | [`v1.1.0`](https://github.com/hongryulahn/IDEA/releases/tag/v1.1.0) | Faster implementation (~4.6x) and new optional graph chunking methods (`-chunkingMethod`) | **Default options: byte-identical to `v1.0.1`**; results differ only if a new chunking method is chosen |
+| [`v1.2.0`](https://github.com/hongryulahn/IDEA/releases/tag/v1.2.0) | `v1.1.0` + optional outlier post-processing (`-outlierAssignment greedy`: assigns the `-1` points so that there are exactly k clusters) | **Default options: byte-identical to `v1.0.1`**; results differ only if a new option is chosen |
 
 The paper experiments were run with outlier ratio γ = 0.09, so the typo does not affect the published results.
 Details: [CHANGELOG.md](CHANGELOG.md).
@@ -90,6 +91,9 @@ from ~275 s to ~60 s (4.6x; ~2x without numba). Main changes:
 - METIS is called through `pymetis.CSRAdjacency` (the `xadj/adjncy` form is deprecated).
 - Fix: the CLI default of `-outlierRatio` was `0.9` although documented (and used by `IDEA.fit`)
   as `0.09`; it is now `0.09`. With `0.9` almost every point was reported as an outlier (`-1`).
+
+Outliers (`-1`) can optionally be assigned to the k clusters with `-outlierAssignment greedy`
+(post-processing, not part of the paper; default `none` keeps the paper's behaviour).
 
 Graph chunking can be selected with `-chunkingMethod` (`metis` default = rMETIS as in the paper;
 `metis_kway`, `leiden_cpm`, `leiden_mod`, `louvain` (need `pip install python-igraph`), `spectral`, `average`).
