@@ -7,11 +7,49 @@ Versioning follows [Semantic Versioning](https://semver.org/):
 
 To reproduce the paper (IEEE BigData 2021), use `v1.0.1` (= `v1.0-paper` + one typo fix).
 
+## v1.2.0 — unreleased
+
+New optional outlier post-processing. The published algorithm and all default results are unchanged
+(with default options the output is still byte-identical to `v1.0.1`).
+
+### `-outlierAssignment {none, greedy}` (default `none`)
+IDEA's DynamicOutlierCutTree returns k clusters plus outlier points labelled `-1` (the paper's behaviour,
+kept by `none`). `greedy` assigns every `-1` point to one of the k clusters, so that there are exactly k
+clusters (`IDEA_outlier.py`). It runs after the tree cut and does not change the tree or the k clusters.
+
+- Units: maximal subtrees of the clustering tree whose leaves are all `-1` ("outlier leaf chunks"); each chunk
+  is assigned as a whole.
+- Closeness: total WNN edge weight between the chunk and a cluster (the criterion IDEA also uses to reassign
+  shattered nodes during chunking).
+- Greedy, one chunk at a time: attach the (chunk, cluster) pair with the largest connecting weight, then
+  update the chunks adjacent to it. A chunk that is only connected to other outlier chunks becomes attachable
+  once a neighbour has been attached, so chains are handled. Implemented with a priority queue; the result is
+  identical to recomputing all weights and attaching the single best pair at every step (tested).
+- Chunks with no graph connection to any cluster (separate connected component) are attached through the tree,
+  to the cluster sharing the deepest common ancestor.
+
+Effect on the bundled datasets (only 6 of 20 have outlier points; `none` scored with `-1` as one group):
+
+| Data | `-1` points | chunks | ARI `none` | ARI `greedy` | NMI `none` | NMI `greedy` |
+|---|---|---|---|---|---|---|
+| A04 | 9 | 1 | 0.9267 | 0.9281 | 0.9395 | 0.9406 |
+| A05 | 33 | 2 | 0.7031 | 0.7076 | 0.7845 | 0.7881 |
+| A06 | 35 | 1 | 0.6053 | 0.6107 | 0.7122 | 0.7146 |
+| C03 | 84 | 2 | 0.8983 | 0.8916 | 0.8969 | 0.8941 |
+| D01 | 27 | 18 | 0.8231 | 0.8472 | 0.8783 | 0.9098 |
+| D02 | 138 | 18 | 0.9216 | 0.9090 | 0.8904 | 0.8897 |
+| **mean over all 20** | | | **0.9223** | **0.9231** | **0.9349** | **0.9367** |
+
+On these datasets every outlier chunk is directly connected to a cluster (no chains, no tree fallback), so the
+greedy result differs from a one-shot "nearest cluster for every chunk" assignment in only one point (D01).
+Use `greedy` when exactly k clusters are required (e.g. comparison with methods that always return k
+clusters); keep `none` to reproduce the paper.
+
 ## v1.1.0 — 2026-11-24
 
 The algorithm of `v1.0-paper` / `v1.0.1` is unchanged; only its implementation was optimised. With the
 default options, the cluster and linkage outputs are **byte-identical** to `v1.0.1` on all 20 bundled
-datasets. Graph chunking methods and an optional outlier post-processing step were added as options.
+datasets. Graph chunking methods were added as options.
 
 ### 1. Options: original vs. recommended
 
@@ -25,7 +63,6 @@ datasets. Graph chunking methods and an optional outlier post-processing step we
 | `-chunkingMethod` | `metis` (rMETIS: recursive METIS bisection + 5 rounds of silhouette-based shatter / reassignment) | **`metis`** | the new methods have lower mean accuracy (table below) |
 | linkage ensemble | auto (11 methods) | auto (11 methods) | average, weighted, single, complete, deltaRev, deltaModularity, minPossibleEdgeCountNormalized, minNodeNormalized, minEdgeCountNormalized, minEdgeWeightNormalized, minModularityWeightNormalized |
 | forbidden-pair re-search | 10 rounds | 10 rounds | |
-| `-outlierAssignment` | — (outliers stay `-1`) | `none` to reproduce the paper; `greedy` if exactly k clusters are needed | post-processing, section 5 |
 | numba | — | **recommended** | without it the pure-Python path is used (same results, ~2x slower) |
 
 Alternatives for specific cases:
@@ -118,43 +155,6 @@ Summary:
   forbidden pairs). Integer weights are used on purpose to create many ties.
 - `bench/run_bench.py`: runs the 20 datasets; time, ARI, NMI, byte comparison with reference outputs.
 - `bench/compare_methods.py`: builds the comparison table above from several runs.
-
-
-### 5. Optional outlier post-processing: `-outlierAssignment {none, greedy}` (default `none`)
-
-Not part of the published algorithm; with the default the output is unchanged.
-
-IDEA's DynamicOutlierCutTree returns k clusters plus outlier points labelled `-1` (the paper's behaviour,
-kept by `none`). `greedy` assigns every `-1` point to one of the k clusters, so that there are exactly k
-clusters (`IDEA_outlier.py`). It runs after the tree cut and does not change the tree or the k clusters.
-
-- Units: maximal subtrees of the clustering tree whose leaves are all `-1` ("outlier leaf chunks"); each chunk
-  is assigned as a whole.
-- Closeness: total WNN edge weight between the chunk and a cluster (the criterion IDEA also uses to reassign
-  shattered nodes during chunking).
-- Greedy, one chunk at a time: attach the (chunk, cluster) pair with the largest connecting weight, then
-  update the chunks adjacent to it. A chunk that is only connected to other outlier chunks becomes attachable
-  once a neighbour has been attached, so chains are handled. Implemented with a priority queue; the result is
-  identical to recomputing all weights and attaching the single best pair at every step (tested).
-- Chunks with no graph connection to any cluster (separate connected component) are attached through the tree,
-  to the cluster sharing the deepest common ancestor.
-
-Effect on the bundled datasets (only 6 of 20 have outlier points; `none` scored with `-1` as one group):
-
-| Data | `-1` points | chunks | ARI `none` | ARI `greedy` | NMI `none` | NMI `greedy` |
-|---|---|---|---|---|---|---|
-| A04 | 9 | 1 | 0.9267 | 0.9281 | 0.9395 | 0.9406 |
-| A05 | 33 | 2 | 0.7031 | 0.7076 | 0.7845 | 0.7881 |
-| A06 | 35 | 1 | 0.6053 | 0.6107 | 0.7122 | 0.7146 |
-| C03 | 84 | 2 | 0.8983 | 0.8916 | 0.8969 | 0.8941 |
-| D01 | 27 | 18 | 0.8231 | 0.8472 | 0.8783 | 0.9098 |
-| D02 | 138 | 18 | 0.9216 | 0.9090 | 0.8904 | 0.8897 |
-| **mean over all 20** | | | **0.9223** | **0.9231** | **0.9349** | **0.9367** |
-
-On these datasets every outlier chunk is directly connected to a cluster (no chains, no tree fallback), so the
-greedy result differs from a one-shot "nearest cluster for every chunk" assignment in only one point (D01).
-Use `greedy` when exactly k clusters are required (e.g. comparison with methods that always return k
-clusters); keep `none` to reproduce the paper.
 
 ### Reproduction
 
